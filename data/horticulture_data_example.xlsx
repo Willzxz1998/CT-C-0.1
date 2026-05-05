@@ -1,0 +1,8 @@
+This is a placeholder text file standing in for an Excel .xlsx file.
+Please create a real Excel file named 'horticulture_data_example.xlsx' in the 'data' folder
+with at least the following columns:
+year, province, crop, production_tonnes, residue_tonnes, residue_usable_fraction,
+biochar_yield, compost_yield, moisture_content, ca_content
+
+For testing, you can copy the example table from the README into Excel.
+
