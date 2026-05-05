@@ -84,13 +84,36 @@ def load_references_text() -> str:
     return "\n\n".join(refs)
 
 
+def load_homepage_text_without_references() -> str:
+    text = load_intro_text()
+    lines = text.splitlines()
+    output: list[str] = []
+    for line in lines:
+        if "reference" in line.lower():
+            break
+        output.append(line)
+    cleaned = "\n".join(output).strip()
+    return cleaned if cleaned else text
+
+
 def render_home():
     st.title("Circular Cultivation and Chemistry SusTool")
-    st.markdown(load_intro_text())
+    st.markdown(
+        """
+<style>
+.home-content h1 { font-size: 2.0rem; font-weight: 800; margin-bottom: 0.6rem; }
+.home-content h2 { font-size: 1.4rem; font-weight: 700; margin-top: 1.2rem; margin-bottom: 0.4rem; }
+.home-content h3 { font-size: 1.15rem; font-weight: 700; margin-top: 1.0rem; margin-bottom: 0.3rem; }
+.home-content p, .home-content li { font-size: 1.02rem; line-height: 1.65; }
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+    st.markdown(f"<div class='home-content'>{load_homepage_text_without_references()}</div>", unsafe_allow_html=True)
 
 
 def render_visualization_panel():
-    st.title("Tool data")
+    st.title("Circular horticultural cultivation value chain")
 
     # Sidebar: multi-level filters
     st.sidebar.header("Filters")
@@ -174,6 +197,7 @@ def render_visualization_panel():
     )
 
     by_crop = summary_by_crop(grouped)
+    by_crop = by_crop[by_crop["value"] > 0]
     by_province = summary_by_province(grouped)
     stacked = stacked_by_province_and_crop(grouped)
 
@@ -273,12 +297,10 @@ def render_visualization_panel():
         st.plotly_chart(fig_bar, use_container_width=True)
 
     with tab2:
-        st.subheader("Provincial contribution")
         fig_pie = pie_chart_by_province(by_province, value_label, title="Provincial contribution", unit="kt")
         st.plotly_chart(fig_pie, use_container_width=True)
 
     with tab3:
-        st.subheader("Overview")
         if data_type_label == "Horticultural Production Overview":
             fig_stack = stacked_bar_by_province_and_crop(
                 stacked,
@@ -360,12 +382,7 @@ def render_missing_data_panel():
         else:
             out = row
         out.to_csv(log_path, index=False)
-        st.success(f"Saved to {log_path}")
-
-    log_path = Path(MISSING_DATA_LOG_PATH)
-    if log_path.exists():
-        st.subheader("Saved user submissions")
-        st.dataframe(pd.read_csv(log_path), use_container_width=True, hide_index=True)
+        st.success("Submission saved successfully.")
 
 
 def render_about():
@@ -438,7 +455,7 @@ def render_about():
 
 
 def render_references_panel():
-    st.title("References")
+    st.title(" ")
     st.markdown(load_references_text())
 
 
@@ -449,18 +466,18 @@ def main():
         "Subpanel",
         options=[
             "Homepage",
-            "Tool data",
-            "References",
+            "Circular horticultural cultivation value chain",
             "Missing data",
             "CIRCULCA (Coming soon)",
             "Methods & Data",
+            "References",
         ],
         index=0,
     )
 
     if subpanel == "Homepage":
         render_home()
-    elif subpanel == "Tool data":
+    elif subpanel == "Circular horticultural cultivation value chain":
         render_visualization_panel()
     elif subpanel == "Missing data":
         render_missing_data_panel()
