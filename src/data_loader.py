@@ -89,6 +89,11 @@ def read_excel_data(path: str | Path = EXCEL_PATH) -> pd.DataFrame:
 
     residue_merged = residue_std.merge(conv_std, on=["crop", "residue_type"], how="left")
 
+    # Keep only supported residue types in this version.
+    allowed_residue_types = {"Resid", "Farm food loss"}
+    residue_merged["residue_type"] = residue_merged["residue_type"].astype(str).str.strip()
+    residue_merged = residue_merged[residue_merged["residue_type"].isin(allowed_residue_types)]
+
     for frame in [prod_std, residue_merged]:
         frame["province"] = frame["province"].replace(PROVINCE_ALIASES)
         frame["province"] = frame.apply(
@@ -120,7 +125,8 @@ def read_excel_data(path: str | Path = EXCEL_PATH) -> pd.DataFrame:
     df_out = residue_by_type.merge(production_agg, on=["year", "nuts_id", "province", "crop"], how="outer")
 
     df_out["year"] = pd.to_numeric(df_out["year"], errors="coerce").fillna(DEFAULT_YEAR).astype(int)
-    df_out["residue_type"] = df_out["residue_type"].fillna("Not specified")
+    # Do not create synthetic residue types; keep only valid input categories.
+    df_out["residue_type"] = df_out["residue_type"].fillna("")
     for c in ["production_kt", "residue_kt", "biochar_yield", "compost_yield"]:
         df_out[c] = pd.to_numeric(df_out.get(c, 0.0), errors="coerce")
 
@@ -136,6 +142,7 @@ def read_excel_data(path: str | Path = EXCEL_PATH) -> pd.DataFrame:
     df_out["residue_usable_fraction"] = 1.0
     df_out = df_out[df_out["province"].isin(SNF_PROVINCES)]
     df_out = df_out.dropna(subset=["province", "crop"])
+    df_out = df_out[df_out["residue_type"] != ""]
 
     return df_out
 

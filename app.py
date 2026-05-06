@@ -101,15 +101,24 @@ def render_home():
     st.markdown(
         """
 <style>
-.home-content h1 { font-size: 2.0rem; font-weight: 800; margin-bottom: 0.6rem; }
-.home-content h2 { font-size: 1.4rem; font-weight: 700; margin-top: 1.2rem; margin-bottom: 0.4rem; }
-.home-content h3 { font-size: 1.15rem; font-weight: 700; margin-top: 1.0rem; margin-bottom: 0.3rem; }
-.home-content p, .home-content li { font-size: 1.02rem; line-height: 1.65; }
+.home-content h1 { font-size: 2.2rem; font-weight: 800; margin-bottom: 0.65rem; }
+.home-content h2 { font-size: 1.55rem; font-weight: 750; margin-top: 1.25rem; margin-bottom: 0.45rem; }
+.home-content h3 { font-size: 1.25rem; font-weight: 700; margin-top: 1.05rem; margin-bottom: 0.35rem; }
+.home-content p, .home-content li { font-size: 1.08rem; line-height: 1.72; }
 </style>
 """,
         unsafe_allow_html=True,
     )
     st.markdown(f"<div class='home-content'>{load_homepage_text_without_references()}</div>", unsafe_allow_html=True)
+    st.markdown(
+        """
+### Project tasks
+1. Compile and update crop production and residue inventories.
+2. Compare provincial and crop-level circular valorization opportunities.
+3. Evaluate potential biochar and compost outputs under utilization scenarios.
+4. Identify missing data and collect user-provided updates for continuous improvement.
+"""
+    )
 
 
 def render_visualization_panel():
@@ -235,8 +244,9 @@ def render_visualization_panel():
                         + "; ".join(
                             sorted(
                                 g["pyrolysis_tech"]
-                                .fillna("Data unavailable")
                                 .astype(str)
+                                .str.strip()
+                                .loc[lambda s: (s != "") & (s.str.lower() != "data unavailable")]
                                 .unique()
                             )[:3]
                         )
@@ -245,6 +255,7 @@ def render_visualization_panel():
             )
             .reset_index(drop=True)
         )
+        meta["hover_info"] = meta["hover_info"].replace("Pyrolysis: ", "Pyrolysis: no available technology record")
         by_crop_with_hover = by_crop.merge(meta, on="crop", how="left")
     elif data_type_label == "Potential Compost Production":
         hover_info_col = "hover_info"
