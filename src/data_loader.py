@@ -20,8 +20,47 @@ def _ensure_path(path_str: str | Path) -> Path:
     return Path(path_str).expanduser().resolve()
 
 
+def _normalize_provinces(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["province"] = out["province"].replace(PROVINCE_ALIASES)
+    out["province"] = out.apply(
+        lambda r: NUTS2_TO_PROVINCE.get(str(r.get("nuts_id", "")), r["province"]),
+        axis=1,
+    )
+    return out
+
+
+def read_production_data(path: str | Path = EXCEL_PATH, year: int = DEFAULT_YEAR) -> pd.DataFrame:
+    """Load horticultural production directly from the Crop_production sheet."""
+    excel_path = _ensure_path(path)
+    prod = pd.read_excel(excel_path, sheet_name=SHEETS["production"])
+
+    required = [COLS["year"], COLS["nuts_id"], COLS["province"], COLS["crop"], COLS["production_kt"]]
+    missing = [c for c in required if c not in prod.columns]
+    if missing:
+        raise ValueError(f"Missing required columns in {SHEETS['production']}: {missing}")
+
+    prod_std = prod.rename(
+        columns={
+            COLS["year"]: "year",
+            COLS["nuts_id"]: "nuts_id",
+            COLS["province"]: "province",
+            COLS["crop"]: "crop",
+            COLS["production_kt"]: "production_kt",
+        }
+    )
+    prod_std = _normalize_provinces(prod_std)
+    prod_std["production_kt"] = pd.to_numeric(prod_std["production_kt"], errors="coerce").fillna(0.0)
+    prod_std["year"] = pd.to_numeric(prod_std["year"], errors="coerce").fillna(DEFAULT_YEAR).astype(int)
+
+    prod_std = prod_std[prod_std["province"].isin(SNF_PROVINCES)]
+    prod_std = prod_std[prod_std["year"] == year]
+    prod_std = prod_std.dropna(subset=["province", "crop"])
+    return prod_std.reset_index(drop=True)
+
+
 def read_excel_data(path: str | Path = EXCEL_PATH) -> pd.DataFrame:
-    """Read the 3-sheet CTCdata workbook and return the app dataset."""
+    """Read residue + conversion data merged with production for non-production views."""
     excel_path = _ensure_path(path)
     if not excel_path.exists():
         raise FileNotFoundError(f"Data file not found: {excel_path}")
@@ -89,17 +128,12 @@ def read_excel_data(path: str | Path = EXCEL_PATH) -> pd.DataFrame:
 
     residue_merged = residue_std.merge(conv_std, on=["crop", "residue_type"], how="left")
 
-    # Keep only supported residue types in this version.
     allowed_residue_types = {"Resid", "Farm food loss"}
     residue_merged["residue_type"] = residue_merged["residue_type"].astype(str).str.strip()
     residue_merged = residue_merged[residue_merged["residue_type"].isin(allowed_residue_types)]
 
-    for frame in [prod_std, residue_merged]:
-        frame["province"] = frame["province"].replace(PROVINCE_ALIASES)
-        frame["province"] = frame.apply(
-            lambda r: NUTS2_TO_PROVINCE.get(str(r.get("nuts_id", "")), r["province"]),
-            axis=1,
-        )
+    prod_std = _normalize_provinces(prod_std)
+    residue_merged = _normalize_provinces(residue_merged)
 
     prod_std["production_kt"] = pd.to_numeric(prod_std["production_kt"], errors="coerce").fillna(0.0)
     residue_merged["residue_kt"] = pd.to_numeric(residue_merged["residue_kt"], errors="coerce").fillna(0.0)
@@ -122,15 +156,13 @@ def read_excel_data(path: str | Path = EXCEL_PATH) -> pd.DataFrame:
     production_agg = (
         prod_std.groupby(["year", "nuts_id", "province", "crop"], as_index=False)["production_kt"].sum()
     )
-    df_out = residue_by_type.merge(production_agg, on=["year", "nuts_id", "province", "crop"], how="outer")
+    df_out = residue_by_type.merge(production_agg, on=["year", "nuts_id", "province", "crop"], how="left")
 
     df_out["year"] = pd.to_numeric(df_out["year"], errors="coerce").fillna(DEFAULT_YEAR).astype(int)
-    # Do not create synthetic residue types; keep only valid input categories.
     df_out["residue_type"] = df_out["residue_type"].fillna("")
     for c in ["production_kt", "residue_kt", "biochar_yield", "compost_yield"]:
         df_out[c] = pd.to_numeric(df_out.get(c, 0.0), errors="coerce")
 
-    # Flags for missing-data panel
     df_out["missing_production"] = df_out["production_kt"].isna()
     df_out["missing_residue"] = df_out["residue_kt"].isna()
     df_out["missing_biochar_yield"] = df_out["biochar_yield"].isna()
@@ -148,17 +180,22 @@ def read_excel_data(path: str | Path = EXCEL_PATH) -> pd.DataFrame:
 
 
 def filter_by_year(df: pd.DataFrame, year: int = DEFAULT_YEAR) -> pd.DataFrame:
-    """Filter by year if a year column exists; otherwise return the input."""
     if "year" not in df.columns:
         return df.copy()
     return df[df["year"] == year].copy()
 
 
 def get_available_filters(df: pd.DataFrame) -> Tuple[list[str], list[str]]:
-    """
-    Return available provinces and crops (alphabetical).
-    """
     provinces = sorted(df["province"].dropna().unique().tolist())
     crops = sorted(df["crop"].dropna().unique().tolist())
     return provinces, crops
 
+
+def get_production_summary(year: int = DEFAULT_YEAR) -> dict:
+    prod = read_production_data(year=year)
+    return {
+        "total_production_kt": float(prod["production_kt"].sum()),
+        "crop_count": int(prod["crop"].nunique()),
+        "province_count": int(prod["province"].nunique()),
+        "record_count": int(len(prod)),
+    }

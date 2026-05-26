@@ -9,16 +9,28 @@ import pandas as pd
 import streamlit as st
 
 from src.config import (
+    CREATOR_ONLY_SUBPANELS,
+    CREATOR_PASSWORD,
     DATA_TYPES,
+    DEFAULT_YEAR,
+    EXCEL_PATH,
+    MISSING_DATA_LOG_PATH,
+    PRODUCTION_VIEW,
     PRODUCT_TYPES,
     SNF_PROVINCES,
-    DEFAULT_YEAR,
-    MISSING_DATA_LOG_PATH,
+    USER_SUBPANELS,
 )
-from src.data_loader import read_excel_data, filter_by_year, get_available_filters
+from src.data_loader import (
+    filter_by_year,
+    get_available_filters,
+    get_production_summary,
+    read_excel_data,
+    read_production_data,
+)
 from src.calculations import (
     add_potential_products,
     aggregate_for_view,
+    aggregate_production_for_view,
     summary_by_crop,
     summary_by_province,
     stacked_by_province_and_crop,
@@ -34,18 +46,139 @@ from src.visualizations import (
 st.set_page_config(
     page_title="Circular Cultivation and Chemistry SusTool",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 
+def inject_global_styles() -> None:
+    st.markdown(
+        """
+<style>
+[data-testid="stAppViewContainer"] {
+  background: linear-gradient(180deg, #f4faf4 0%, #ffffff 28%);
+}
+.hero-banner {
+  background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 55%, #66bb6a 100%);
+  color: #ffffff;
+  padding: 2rem 2.2rem;
+  border-radius: 16px;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 8px 24px rgba(27, 94, 32, 0.18);
+}
+.hero-banner h1 {
+  color: #ffffff !important;
+  font-size: 2.1rem;
+  margin: 0 0 0.35rem 0;
+}
+.hero-banner p {
+  color: #e8f5e9;
+  font-size: 1.05rem;
+  margin: 0;
+  line-height: 1.6;
+}
+.metric-card {
+  background: #ffffff;
+  border: 1px solid #c8e6c9;
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+}
+.how-card {
+  background: #ffffff;
+  border-left: 4px solid #2e7d32;
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+  min-height: 140px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+.home-content h2 { color: #1b4332; font-size: 1.45rem; margin-top: 1.2rem; }
+.home-content h3 { color: #2e7d32; font-size: 1.15rem; margin-top: 0.9rem; }
+.home-content p, .home-content li { font-size: 1.02rem; line-height: 1.72; color: #263238; }
+.view-summary {
+  background: #f1f8e9;
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  border: 1px solid #c5e1a5;
+  margin-bottom: 1rem;
+}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def get_creator_password() -> str:
+    try:
+        return str(st.secrets.get("creator_password", CREATOR_PASSWORD))
+    except Exception:
+        return CREATOR_PASSWORD
+
+
+def is_creator() -> bool:
+    if st.session_state.get("is_creator"):
+        return True
+    try:
+        if bool(st.secrets.get("creator_mode", False)):
+            st.session_state["is_creator"] = True
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def render_creator_gate() -> None:
+    """Maintainer unlock — only shown when URL contains ?maintainer=1."""
+    if is_creator():
+        return
+    if st.query_params.get("maintainer", "") != "1":
+        return
+    with st.sidebar.expander("Maintainer sign-in", expanded=True):
+        pwd = st.text_input("Password", type="password", key="creator_password_input")
+        if st.button("Unlock maintainer tools", use_container_width=True):
+            if pwd == get_creator_password():
+                st.session_state["is_creator"] = True
+                st.rerun()
+            elif pwd:
+                st.error("Incorrect password.")
+
+
+def navigation_options() -> list[str]:
+    options = list(USER_SUBPANELS)
+    if is_creator():
+        insert_at = len(options)
+        for panel in CREATOR_ONLY_SUBPANELS:
+            if panel not in options:
+                options.insert(insert_at, panel)
+                insert_at += 1
+        if "CIRCULCA (Coming soon)" not in options:
+            options.insert(-1, "CIRCULCA (Coming soon)")
+    return options
+
+
 @st.cache_data
-def load_data_for_year(year: int = DEFAULT_YEAR):
+def load_residue_data_for_year(year: int = DEFAULT_YEAR, data_mtime: float = 0.0):
     df = read_excel_data()
     df_year = filter_by_year(df, year)
     provinces, crops = get_available_filters(df_year)
     return df_year, provinces, crops
 
 
-def load_intro_text() -> str:
+@st.cache_data
+def load_production_for_year(year: int = DEFAULT_YEAR, data_mtime: float = 0.0):
+    prod = read_production_data(year=year)
+    provinces, crops = get_available_filters(prod)
+    return prod, provinces, crops
+
+
+def get_ctcdata_mtime() -> float:
+    """Used to automatically invalidate cached data after Excel updates."""
+    try:
+        return float(Path(EXCEL_PATH).stat().st_mtime)
+    except Exception:
+        return 0.0
+
+
+def load_intro_paragraphs() -> list[str]:
     docx_path = Path("data/Intro&Ref of SusTool.docx")
     if docx_path.exists():
         try:
@@ -53,81 +186,143 @@ def load_intro_text() -> str:
                 xml_bytes = zf.read("word/document.xml")
             root = ET.fromstring(xml_bytes)
             ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
-            paragraphs = []
+            paragraphs: list[str] = []
             for p in root.findall(".//w:p", ns):
                 parts = [t.text for t in p.findall(".//w:t", ns) if t.text]
                 line = "".join(parts).strip()
                 if line:
                     paragraphs.append(line)
             if paragraphs:
-                return "\n\n".join(paragraphs)
+                return paragraphs
         except Exception:
             pass
     intro_path = Path("content/intro_references.md")
     if intro_path.exists():
-        return intro_path.read_text(encoding="utf-8")
-    return (
-        "# Circular Cultivation and Chemistry SusTool\n\n"
-        "Please add introduction, user manual, scope, and references in `content/intro_references.md`.\n"
-    )
+        return [line for line in intro_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [
+        "Introduction",
+        "Circular Cultivation and Chemistry SusTool supports exploration of horticultural biomass in the SNF region.",
+    ]
+
+
+def paragraphs_without_references(paragraphs: list[str]) -> list[str]:
+    out: list[str] = []
+    for line in paragraphs:
+        if line.strip().lower() == "reference" or line.strip().lower().startswith("reference "):
+            break
+        out.append(line)
+    return out
+
+
+def format_paragraphs_as_markdown(paragraphs: list[str]) -> str:
+    blocks: list[str] = []
+    for line in paragraphs:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        lower = stripped.lower()
+        if stripped == "Introduction":
+            blocks.append("## Introduction")
+        elif lower.startswith("about ") or lower.startswith("purpose of") or lower.startswith("objective of"):
+            title = stripped.rstrip(":").strip()
+            blocks.append(f"### {title}")
+        elif stripped.endswith(":") and len(stripped) < 90:
+            blocks.append(f"### {stripped.rstrip(':')}")
+        else:
+            blocks.append(stripped)
+    return "\n\n".join(blocks)
 
 
 def load_references_text() -> str:
-    text = load_intro_text()
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    ref_start = 0
-    for i, line in enumerate(lines):
-        if "reference" in line.lower():
-            ref_start = i
-            break
-    refs = lines[ref_start:] if ref_start else lines[-20:]
+    paragraphs = load_intro_paragraphs()
+    refs: list[str] = []
+    capture = False
+    for line in paragraphs:
+        if line.strip().lower().startswith("reference"):
+            capture = True
+        if capture:
+            refs.append(line)
+    if not refs:
+        refs = paragraphs[-12:]
     return "\n\n".join(refs)
 
 
-def load_homepage_text_without_references() -> str:
-    text = load_intro_text()
-    lines = text.splitlines()
-    output: list[str] = []
-    for line in lines:
-        if "reference" in line.lower():
-            break
-        output.append(line)
-    cleaned = "\n".join(output).strip()
-    return cleaned if cleaned else text
-
-
 def render_home():
-    st.title("Circular Cultivation and Chemistry SusTool")
+    inject_global_styles()
+    summary = get_production_summary(DEFAULT_YEAR)
+
     st.markdown(
         """
-<style>
-.home-content h1 { font-size: 2.2rem; font-weight: 800; margin-bottom: 0.65rem; }
-.home-content h2 { font-size: 1.55rem; font-weight: 750; margin-top: 1.25rem; margin-bottom: 0.45rem; }
-.home-content h3 { font-size: 1.25rem; font-weight: 700; margin-top: 1.05rem; margin-bottom: 0.35rem; }
-.home-content p, .home-content li { font-size: 1.08rem; line-height: 1.72; }
-</style>
+<div class="hero-banner">
+  <h1>Circular Cultivation and Chemistry SusTool</h1>
+  <p>Explore horticultural production, residue inventories, and circular valorisation pathways across the SNF region.</p>
+</div>
 """,
         unsafe_allow_html=True,
     )
-    st.markdown(f"<div class='home-content'>{load_homepage_text_without_references()}</div>", unsafe_allow_html=True)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Production in database (kt)", f"{summary['total_production_kt']:,.1f}")
+    m2.metric("Crops with production data", summary["crop_count"])
+    m3.metric("SNF provinces covered", summary["province_count"])
+    m4.metric("Production records", summary["record_count"])
+
+    st.markdown("### How to use this tool")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown(
+            """
+<div class="how-card">
+<b>1. Choose a view</b><br>
+Open <i>Circular horticultural cultivation value chain</i> and pick production, residue, or potential product views.
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+    with c2:
+        st.markdown(
+            """
+<div class="how-card">
+<b>2. Filter the region</b><br>
+Select year, geographic scope, and crops to focus on the SNF provinces relevant to your analysis.
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+    with c3:
+        st.markdown(
+            """
+<div class="how-card">
+<b>3. Explore charts & map</b><br>
+Compare crop rankings, provincial contributions, stacked overviews, and the interactive SNF choropleth map.
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+    intro_md = format_paragraphs_as_markdown(paragraphs_without_references(load_intro_paragraphs()))
+    st.markdown('<div class="home-content">', unsafe_allow_html=True)
+    st.markdown(intro_md)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("### Project focus")
     st.markdown(
         """
-### Project tasks
-1. Compile and update crop production and residue inventories.
-2. Compare provincial and crop-level circular valorization opportunities.
-3. Evaluate potential biochar and compost outputs under utilization scenarios.
-4. Identify missing data and collect user-provided updates for continuous improvement.
+1. Compile and update crop production and residue inventories for the SNF region.
+2. Compare provincial and crop-level circular valorisation opportunities.
+3. Evaluate potential biochar and compost outputs under utilisation scenarios.
+4. Support evidence-based decisions on sustainable horticultural value chains.
 """
     )
 
 
 def render_visualization_panel():
+    inject_global_styles()
     st.title("Circular horticultural cultivation value chain")
 
-    # Sidebar: multi-level filters
     st.sidebar.header("Filters")
-
-    if st.sidebar.button("Reload data"):
+    if st.sidebar.button("Reload data", help="Refresh charts after updating data/CTCdata.xlsx"):
         st.cache_data.clear()
         st.rerun()
 
@@ -136,19 +331,26 @@ def render_visualization_panel():
         options=list(DATA_TYPES.keys()),
         index=0,
     )
+    is_production_view = data_type_label == PRODUCTION_VIEW
 
     year = st.sidebar.number_input(
         "Year", min_value=2000, max_value=2100, value=DEFAULT_YEAR, step=1
     )
 
-    df_year, provinces_all, crops_all = load_data_for_year(year)
+    if is_production_view:
+        prod_df, provinces_all, crops_all = load_production_for_year(
+            year, data_mtime=get_ctcdata_mtime()
+        )
+        residue_types_all: list[str] = []
+        df_year = None
+    else:
+        df_year, provinces_all, crops_all = load_residue_data_for_year(
+            year, data_mtime=get_ctcdata_mtime()
+        )
+        residue_types_all = []
+        if df_year is not None and "residue_type" in df_year.columns:
+            residue_types_all = sorted(df_year["residue_type"].dropna().unique().tolist())
 
-    # Residue type filter (only for residue and potential products)
-    residue_types_all = []
-    if "residue_type" in df_year.columns:
-        residue_types_all = sorted(df_year["residue_type"].dropna().unique().tolist())
-
-    # Geographic scope
     geo_scope = st.sidebar.radio(
         "2. Geographic scope",
         options=["Entire SNF region", "Single province", "Multiple provinces"],
@@ -158,9 +360,7 @@ def render_visualization_panel():
     if geo_scope == "Entire SNF region":
         selected_provinces = SNF_PROVINCES
     elif geo_scope == "Single province":
-        selected_provinces = [
-            st.sidebar.selectbox("Province", options=SNF_PROVINCES)
-        ]
+        selected_provinces = [st.sidebar.selectbox("Province", options=SNF_PROVINCES)]
     else:
         selected_provinces = st.sidebar.multiselect(
             "Provinces",
@@ -168,7 +368,6 @@ def render_visualization_panel():
             default=SNF_PROVINCES,
         )
 
-    # Crop selection
     selected_crops = st.sidebar.multiselect(
         "3. Crops",
         options=crops_all,
@@ -176,14 +375,13 @@ def render_visualization_panel():
     )
 
     selected_residue_types = None
-    if data_type_label != "Horticultural Production Overview" and residue_types_all:
+    if not is_production_view and residue_types_all:
         selected_residue_types = st.sidebar.multiselect(
             "Residue type",
             options=residue_types_all,
             default=residue_types_all,
         )
 
-    # Residue utilization scenario – only for potential product types
     utilization_rate = 1.0
     if data_type_label in PRODUCT_TYPES:
         utilization_percent = st.sidebar.slider(
@@ -195,15 +393,23 @@ def render_visualization_panel():
         )
         utilization_rate = utilization_percent / 100.0
 
-    # Calculations
-    df_with_products = add_potential_products(df_year, utilization_rate=utilization_rate)
-    grouped = aggregate_for_view(
-        df_with_products,
-        data_type_label=data_type_label,
-        provinces=selected_provinces,
-        crops=selected_crops,
-        residue_types=selected_residue_types,
-    )
+    if is_production_view:
+        grouped = aggregate_production_for_view(
+            prod_df,
+            provinces=selected_provinces,
+            crops=selected_crops,
+        )
+        filtered_for_tech = prod_df.copy()
+    else:
+        df_with_products = add_potential_products(df_year, utilization_rate=utilization_rate)
+        grouped = aggregate_for_view(
+            df_with_products,
+            data_type_label=data_type_label,
+            provinces=selected_provinces,
+            crops=selected_crops,
+            residue_types=selected_residue_types,
+        )
+        filtered_for_tech = df_with_products.copy()
 
     by_crop = summary_by_crop(grouped)
     by_crop = by_crop[by_crop["value"] > 0]
@@ -212,25 +418,34 @@ def render_visualization_panel():
 
     value_label = data_type_label
 
-    # Summary of current selection
-    st.markdown(
-        f"""
-**View:** {data_type_label}  
-**Year:** {year}  
-**Provinces:** {", ".join(selected_provinces) if selected_provinces else "None"}  
-**Crops:** {", ".join(selected_crops) if selected_crops else "None"}  
-{"**Residue type:** " + ", ".join(selected_residue_types) if selected_residue_types else ""}
-{"**Residue utilization:** " + str(int(utilization_rate * 100)) + "%" if data_type_label in PRODUCT_TYPES else ""}
-"""
-    )
+    summary_bits = [
+        f"**View:** {data_type_label}",
+        f"**Year:** {year}",
+        f"**Provinces:** {', '.join(selected_provinces) if selected_provinces else 'None'}",
+        f"**Crops:** {', '.join(selected_crops) if selected_crops else 'None'}",
+    ]
+    if is_production_view:
+        summary_bits.append("**Data source:** `Crop_production` sheet (backend)")
+        summary_bits.append(f"**Crops loaded:** {len(crops_all)} ({', '.join(crops_all)})")
+    if selected_residue_types:
+        summary_bits.append(f"**Residue type:** {', '.join(selected_residue_types)}")
+    if data_type_label in PRODUCT_TYPES:
+        summary_bits.append(f"**Residue utilization:** {int(utilization_rate * 100)}%")
 
-    filtered_for_tech = df_with_products.copy()
+    summary_html = "<br/>".join(summary_bits)
+    st.markdown(f'<div class="view-summary">{summary_html}</div>', unsafe_allow_html=True)
+
     if selected_provinces:
-        filtered_for_tech = filtered_for_tech[filtered_for_tech["province"].isin(selected_provinces)]
+        filtered_for_tech = filtered_for_tech[
+            filtered_for_tech["province"].isin(selected_provinces)
+        ]
     if selected_crops:
         filtered_for_tech = filtered_for_tech[filtered_for_tech["crop"].isin(selected_crops)]
-    if selected_residue_types:
-        filtered_for_tech = filtered_for_tech[filtered_for_tech["residue_type"].isin(selected_residue_types)]
+    if selected_residue_types and "residue_type" in filtered_for_tech.columns:
+        filtered_for_tech = filtered_for_tech[
+            filtered_for_tech["residue_type"].isin(selected_residue_types)
+        ]
+
     hover_info_col = None
     by_crop_with_hover = by_crop.copy()
     if data_type_label == "Potential Biochar Production":
@@ -255,7 +470,9 @@ def render_visualization_panel():
             )
             .reset_index(drop=True)
         )
-        meta["hover_info"] = meta["hover_info"].replace("Pyrolysis: ", "Pyrolysis: no available technology record")
+        meta["hover_info"] = meta["hover_info"].replace(
+            "Pyrolysis: ", "Pyrolysis: no available technology record"
+        )
         by_crop_with_hover = by_crop.merge(meta, on="crop", how="left")
     elif data_type_label == "Potential Compost Production":
         hover_info_col = "hover_info"
@@ -288,11 +505,11 @@ def render_visualization_panel():
     ])
 
     with tab1:
-        if data_type_label == "Horticultural Production Overview":
-            st.subheader("Horticultural Production Overview")
+        if is_production_view:
+            st.subheader("Horticultural production overview")
             fig_bar = bar_chart_rank_by_crop(
                 by_crop,
-                "Horticultural Production Overview",
+                "Crop production",
                 title="Crop production",
                 unit="kt",
             )
@@ -308,19 +525,18 @@ def render_visualization_panel():
         st.plotly_chart(fig_bar, use_container_width=True)
 
     with tab2:
-        fig_pie = pie_chart_by_province(by_province, value_label, title="Provincial contribution", unit="kt")
+        pie_title = "Provincial contribution" if is_production_view else "Provincial contribution"
+        fig_pie = pie_chart_by_province(by_province, value_label, title=pie_title, unit="kt")
         st.plotly_chart(fig_pie, use_container_width=True)
 
     with tab3:
-        if data_type_label == "Horticultural Production Overview":
-            fig_stack = stacked_bar_by_province_and_crop(
-                stacked,
-                "Horticultural production overview",
-                title="Overview",
-                unit="kt",
-            )
-        else:
-            fig_stack = stacked_bar_by_province_and_crop(stacked, value_label, title="Overview", unit="kt")
+        stack_label = "Horticultural production" if is_production_view else value_label
+        fig_stack = stacked_bar_by_province_and_crop(
+            stacked,
+            stack_label,
+            title="Overview by province and crop",
+            unit="kt",
+        )
         st.plotly_chart(fig_stack, use_container_width=True)
 
     with tab4:
@@ -332,10 +548,12 @@ def render_visualization_panel():
 def render_missing_data_panel():
     st.title("Missing data")
     year = st.number_input("Year", min_value=2000, max_value=2100, value=DEFAULT_YEAR, step=1)
-    df_year, _, _ = load_data_for_year(year)
+    df_year, _, _ = load_residue_data_for_year(year, data_mtime=get_ctcdata_mtime())
 
     missing_prod = df_year[df_year["missing_production"]][["nuts_id", "province", "crop"]].drop_duplicates()
-    missing_residue = df_year[df_year["missing_residue"]][["nuts_id", "province", "crop", "residue_type"]].drop_duplicates()
+    missing_residue = df_year[df_year["missing_residue"]][
+        ["nuts_id", "province", "crop", "residue_type"]
+    ].drop_duplicates()
     missing_biochar = df_year[df_year["missing_biochar_yield"]][
         ["nuts_id", "province", "crop", "residue_type"]
     ].drop_duplicates()
@@ -403,88 +621,38 @@ def render_about():
 ### Updating the data
 
 - All core data are loaded from `data/CTCdata.xlsx` (3 sheets).
-- This version uses NUTS2 IDs (`NL41`, `NL42`, `NL34`, `BE21`, `BE22`, `BE23`, `BE24`, `BE25`) and maps them to province names.
-- You can update production, residue inventory, conversion yields, and technology references directly in Excel.
-- As long as the column structure is compatible, **no Python code changes are required**.
+- **Horticultural production overview** reads only the `Crop_production` sheet.
+- Residue and product views use `Residue_inventory` merged with `Conversion_parameters`.
+- NUTS2 IDs map to the eight SNF provinces; boundaries come from `data/geo/snf_nuts2.geojson`.
 
-### Map and geography
+### Maintainer access
 
-- The map uses the **NUTS2 boundaries** of the 8 SNF provinces in `data/geo/snf_nuts2.geojson`.
-- The GeoJSON property `name` must match the `province` names in the Excel file.
+- Public users see browsing and visualisation only.
+- Maintainers: open the app with `?maintainer=1` and sign in via the sidebar (password in Streamlit secrets as `creator_password`, or env `SUSTOOL_CREATOR_PASSWORD`).
+- Optional: set `creator_mode = true` in secrets to enable maintainer tools without a password.
 
-### Extending to more years
+### Deployment
 
-- Add additional years as rows in Excel (change the `year` column accordingly).
-- Use the **Year** input in the Visualization Panel to explore different years.
-
-### Handling missing values
-
-- If some columns are missing or contain empty values:
-  - `residue_usable_fraction` defaults to 1.0
-  - `biochar_yield` and `compost_yield` default to 0
-  - `moisture_content` defaults to 0.5
-  - `ca_content` defaults to 0
-- You can adjust these defaults in `src/data_loader.py` (the `defaults` dictionary).
-
----
-
-## Deployment and domain (overview)
-
-### 1. Deploy to Streamlit Community Cloud (recommended)
-
-1. Push this project to a GitHub repository.
-2. Log in to [Streamlit Community Cloud](https://streamlit.io/cloud).
-3. Create a new app:
-   - Select your GitHub repo.
-   - Set `Main file` to `app.py`.
-   - Ensure `requirements.txt` is present.
-4. After deployment, you will get a public URL like  
-   `https://your-project-name.streamlit.app`.
-
-### 2. Connect a custom domain
-
-1. Purchase a domain (e.g. `sustainabilitytool.eu`, `horti-biomass.eu`, `snf-circularity.org`).
-2. In your domain DNS settings, add a **CNAME** record:
-   - Host: e.g. `portal` (or `@` for root).
-   - Type: `CNAME`.
-   - Value: your Streamlit URL (e.g. `your-project-name.streamlit.app`).
-3. In Streamlit app settings, configure the **Custom Domain** to match your domain.
-4. Wait for DNS to propagate (typically 10–60 minutes).
-
-### 3. Maintenance
-
-- **Update Excel data**:
-  - Edit your Excel file locally.
-  - Commit and push to GitHub (or upload to your deployment platform).
-  - Trigger a redeploy if needed.
-- **Add more crops or years**:
-  - Add rows in Excel; the app will automatically pick them up.
-- **Backups**:
-  - Regularly back up your Excel data and repository.
+Push updates to GitHub and reboot the Streamlit Cloud app to refresh the live deployment.
 """
     )
 
 
 def render_references_panel():
-    st.title(" ")
+    st.title("References")
     st.markdown(load_references_text())
 
 
 def main():
+    inject_global_styles()
+    render_creator_gate()
+
     st.sidebar.header("Research Tool")
     st.sidebar.markdown("**Circular Cultivation and Chemistry SusTool**")
-    subpanel = st.sidebar.radio(
-        "Subpanel",
-        options=[
-            "Homepage",
-            "Circular horticultural cultivation value chain",
-            "Missing data",
-            "CIRCULCA (Coming soon)",
-            "Methods & Data",
-            "References",
-        ],
-        index=0,
-    )
+    if is_creator():
+        st.sidebar.caption("Maintainer mode")
+
+    subpanel = st.sidebar.radio("Subpanel", options=navigation_options(), index=0)
 
     if subpanel == "Homepage":
         render_home()
@@ -497,10 +665,11 @@ def main():
     elif subpanel == "CIRCULCA (Coming soon)":
         st.title("CIRCULCA")
         st.info("This add-on will be designed in the next version.")
-    else:
+    elif subpanel == "Methods & Data":
         render_about()
+    else:
+        st.warning("Unknown section.")
 
 
 if __name__ == "__main__":
     main()
-

@@ -1,3 +1,5 @@
+import os
+
 SNF_PROVINCES = [
     "Zeeland",
     "Noord Brabant",
@@ -22,14 +24,6 @@ NUTS2_TO_PROVINCE = {
 
 DEFAULT_YEAR = 2022
 
-# 示例：可以在实际数据中替换/扩展为 23 种作物
-DEFAULT_CROPS = [
-    "Asparagus",
-    "Blueberry",
-    "Grape",
-]
-
-
 DATA_TYPES = {
     "Horticultural Production Overview": "production_kt",
     "Residue Inventory Overview": "residue_kt",
@@ -37,21 +31,32 @@ DATA_TYPES = {
     "Potential Compost Production": "compost_potential_kt",
 }
 
-
 PRODUCT_TYPES = [
     "Potential Biochar Production",
     "Potential Compost Production",
 ]
 
+PRODUCTION_VIEW = "Horticultural Production Overview"
 
-# Main Excel dataset (keep this modifiable).
-# Recommended: use the repo-relative path `data/CTCdata.xlsx` for deployment.
+# Subpanels visible to public users (browsing the tool).
+USER_SUBPANELS = [
+    "Homepage",
+    "Circular horticultural cultivation value chain",
+    "References",
+]
+
+# Extra subpanels for creators/maintainers only.
+CREATOR_ONLY_SUBPANELS = [
+    "Missing data",
+    "Methods & Data",
+]
+
+# Set SUSTOOL_CREATOR_PASSWORD in Streamlit secrets or environment variables.
+CREATOR_PASSWORD = os.environ.get("SUSTOOL_CREATOR_PASSWORD", "ctc-maintainer")
+
 EXCEL_PATH = "data/CTCdata.xlsx"
-
-# NUTS2 boundaries GeoJSON for the 8 SNF provinces (generated from GISCO NUTS2).
 GEOJSON_PATH = "data/geo/snf_nuts2.geojson"
 
-# Excel sheet names and column names (as provided in your dataset).
 SHEETS = {
     "production": "Crop_production",
     "residue": "Residue_inventory",
@@ -73,7 +78,6 @@ COLS = {
     "composting_tech": "Composting_tech",
 }
 
-# Province name normalization (to match SNF_PROVINCES and GeoJSON `properties.name`)
 PROVINCE_ALIASES = {
     "Noord-Brabant": "Noord Brabant",
     "Prov. Oost-Vlaanderen": "East Flanders",
@@ -82,7 +86,6 @@ PROVINCE_ALIASES = {
     "Prov. Antwerpen": "Antwerp Province",
 }
 
-# Approximate province centroids for map value labels.
 PROVINCE_CENTROIDS = {
     "Zeeland": {"lat": 51.49, "lon": 3.90},
     "Noord Brabant": {"lat": 51.55, "lon": 5.20},
@@ -96,3 +99,15 @@ PROVINCE_CENTROIDS = {
 
 MISSING_DATA_LOG_PATH = "data/user_missing_data_submissions.csv"
 
+CHART_COLORS = [
+    "#1B5E20",
+    "#2E7D32",
+    "#43A047",
+    "#66BB6A",
+    "#81C784",
+    "#A5D6A7",
+    "#C8E6C9",
+    "#FFB74D",
+    "#8D6E63",
+    "#5D4037",
+]
