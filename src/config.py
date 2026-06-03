@@ -42,12 +42,12 @@ PRODUCTION_VIEW = "Horticultural Production Overview"
 USER_SUBPANELS = [
     "Homepage",
     "Circular horticultural cultivation value chain",
+    "Missing data",
     "References",
 ]
 
 # Extra subpanels for creators/maintainers only.
 CREATOR_ONLY_SUBPANELS = [
-    "Missing data",
     "Methods & Data",
 ]
 

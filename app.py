@@ -60,6 +60,46 @@ footer {visibility: hidden;}
 [data-testid="stToolbar"] {visibility: hidden; height: 0;}
 [data-testid="stDecoration"] {display: none;}
 [data-testid="stStatusWidget"] {visibility: hidden;}
+
+/* Hide the "Built with Streamlit" badge and any link back to streamlit.io */
+a[href^="https://streamlit.io"],
+a[href*="streamlit.io/cloud"],
+.viewerBadge_container__r5tak,
+.viewerBadge_link__qRIco,
+[class*="viewerBadge"] {
+  display: none !important;
+}
+
+/* Hide the per-chart Streamlit fullscreen (expand) button */
+[data-testid="StyledFullScreenButton"],
+button[title="View fullscreen"],
+button[title="Exit fullscreen"] {
+  display: none !important;
+}
+
+/* Keep the sidebar open/close control always visible and clickable (important inside an iframe) */
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
+  visibility: visible !important;
+  display: flex !important;
+  opacity: 1 !important;
+  z-index: 1000000 !important;
+  top: 0.5rem !important;
+  left: 0.5rem !important;
+}
+[data-testid="stSidebarCollapsedControl"] button,
+[data-testid="collapsedControl"] button {
+  background: #2e7d32 !important;
+  color: #ffffff !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18) !important;
+}
+[data-testid="stSidebarCollapsedControl"] svg,
+[data-testid="collapsedControl"] svg {
+  color: #ffffff !important;
+  fill: #ffffff !important;
+}
+
 [data-testid="stAppViewContainer"] {
   background: linear-gradient(180deg, #f4faf4 0%, #ffffff 28%);
 }
@@ -553,6 +593,11 @@ def render_visualization_panel():
 
 def render_missing_data_panel():
     st.title("Missing data")
+    st.markdown(
+        "Help us improve this tool. If you have horticultural production, residue, "
+        "or conversion data for the SNF region that is missing or could be updated, "
+        "please share it using the form below. Submissions are reviewed by the research team."
+    )
     year = st.number_input("Year", min_value=2000, max_value=2100, value=DEFAULT_YEAR, step=1)
     df_year, _, _ = load_residue_data_for_year(year, data_mtime=get_ctcdata_mtime())
 
@@ -564,21 +609,23 @@ def render_missing_data_panel():
         ["nuts_id", "province", "crop", "residue_type"]
     ].drop_duplicates()
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Missing crop production records", len(missing_prod))
-    c2.metric("Missing residue records", len(missing_residue))
-    c3.metric("Missing biochar-yield records", len(missing_biochar))
+    # Detailed gap tables are only useful for maintainers; keep them hidden from public users.
+    if is_creator():
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Missing crop production records", len(missing_prod))
+        c2.metric("Missing residue records", len(missing_residue))
+        c3.metric("Missing biochar-yield records", len(missing_biochar))
 
-    st.subheader("Missing crop production")
-    st.dataframe(missing_prod, use_container_width=True, hide_index=True)
-    st.subheader("Missing residue inventory")
-    st.dataframe(missing_residue, use_container_width=True, hide_index=True)
-    st.subheader("Missing biochar yield")
-    st.dataframe(missing_biochar, use_container_width=True, hide_index=True)
+        st.subheader("Missing crop production")
+        st.dataframe(missing_prod, use_container_width=True, hide_index=True)
+        st.subheader("Missing residue inventory")
+        st.dataframe(missing_residue, use_container_width=True, hide_index=True)
+        st.subheader("Missing biochar yield")
+        st.dataframe(missing_biochar, use_container_width=True, hide_index=True)
+        st.markdown("---")
 
-    st.markdown("---")
     st.subheader("Submit missing data")
-    st.caption("Submitted records are saved automatically.")
+    st.caption("Your submission is saved and reviewed by the research team.")
 
     with st.form("missing_data_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
