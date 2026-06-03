@@ -54,6 +54,12 @@ def inject_global_styles() -> None:
     st.markdown(
         """
 <style>
+/* Hide Streamlit chrome so the tool blends into the host website (lcatraining.nl) */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+[data-testid="stToolbar"] {visibility: hidden; height: 0;}
+[data-testid="stDecoration"] {display: none;}
+[data-testid="stStatusWidget"] {visibility: hidden;}
 [data-testid="stAppViewContainer"] {
   background: linear-gradient(180deg, #f4faf4 0%, #ffffff 28%);
 }
