@@ -46,7 +46,7 @@ from src.visualizations import (
 st.set_page_config(
     page_title="Circular Cultivation and Chemistry SusTool",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 
@@ -63,41 +63,30 @@ footer {visibility: hidden;}
 
 /* Hide the "Built with Streamlit" badge and any link back to streamlit.io */
 a[href^="https://streamlit.io"],
-a[href*="streamlit.io/cloud"],
-.viewerBadge_container__r5tak,
-.viewerBadge_link__qRIco,
-[class*="viewerBadge"] {
+a[href*="streamlit.io"],
+[class*="viewerBadge"],
+[data-testid="stAppViewBlockContainer"] + div a[href*="streamlit.io"] {
   display: none !important;
 }
 
 /* Hide the per-chart Streamlit fullscreen (expand) button */
 [data-testid="StyledFullScreenButton"],
+[data-testid="StyledFullScreenFrame"] button,
 button[title="View fullscreen"],
 button[title="Exit fullscreen"] {
   display: none !important;
 }
 
-/* Keep the sidebar open/close control always visible and clickable (important inside an iframe) */
+/* Sidebar is unused (navigation/filters are in the main area); hide it and its toggle */
+[data-testid="stSidebar"],
 [data-testid="stSidebarCollapsedControl"],
 [data-testid="collapsedControl"] {
-  visibility: visible !important;
-  display: flex !important;
-  opacity: 1 !important;
-  z-index: 1000000 !important;
-  top: 0.5rem !important;
-  left: 0.5rem !important;
+  display: none !important;
 }
-[data-testid="stSidebarCollapsedControl"] button,
-[data-testid="collapsedControl"] button {
-  background: #2e7d32 !important;
-  color: #ffffff !important;
-  border-radius: 8px !important;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.18) !important;
-}
-[data-testid="stSidebarCollapsedControl"] svg,
-[data-testid="collapsedControl"] svg {
-  color: #ffffff !important;
-  fill: #ffffff !important;
+
+/* Top navigation styling */
+[data-testid="stAppViewContainer"] [role="radiogroup"] > label {
+  margin-right: 0.4rem;
 }
 
 [data-testid="stAppViewContainer"] {
@@ -178,9 +167,9 @@ def render_creator_gate() -> None:
         return
     if st.query_params.get("maintainer", "") != "1":
         return
-    with st.sidebar.expander("Maintainer sign-in", expanded=True):
+    with st.expander("Maintainer sign-in", expanded=True):
         pwd = st.text_input("Password", type="password", key="creator_password_input")
-        if st.button("Unlock maintainer tools", use_container_width=True):
+        if st.button("Unlock maintainer tools"):
             if pwd == get_creator_password():
                 st.session_state["is_creator"] = True
                 st.rerun()
@@ -367,77 +356,77 @@ def render_visualization_panel():
     inject_global_styles()
     st.title("Circular horticultural cultivation value chain")
 
-    st.sidebar.header("Filters")
-    if st.sidebar.button("Reload data", help="Refresh charts after updating data/CTCdata.xlsx"):
-        st.cache_data.clear()
-        st.rerun()
-
-    data_type_label = st.sidebar.selectbox(
-        "1. Data type",
-        options=list(DATA_TYPES.keys()),
-        index=0,
-    )
-    is_production_view = data_type_label == PRODUCTION_VIEW
-
-    year = st.sidebar.number_input(
-        "Year", min_value=2000, max_value=2100, value=DEFAULT_YEAR, step=1
-    )
-
-    if is_production_view:
-        prod_df, provinces_all, crops_all = load_production_for_year(
-            year, data_mtime=get_ctcdata_mtime()
+    with st.expander("Filters", expanded=True):
+        top = st.columns([2, 1, 1])
+        data_type_label = top[0].selectbox(
+            "1. Data type",
+            options=list(DATA_TYPES.keys()),
+            index=0,
         )
-        residue_types_all: list[str] = []
-        df_year = None
-    else:
-        df_year, provinces_all, crops_all = load_residue_data_for_year(
-            year, data_mtime=get_ctcdata_mtime()
+        is_production_view = data_type_label == PRODUCTION_VIEW
+        year = top[1].number_input(
+            "Year", min_value=2000, max_value=2100, value=DEFAULT_YEAR, step=1
         )
-        residue_types_all = []
-        if df_year is not None and "residue_type" in df_year.columns:
-            residue_types_all = sorted(df_year["residue_type"].dropna().unique().tolist())
+        if top[2].button("Reload data", help="Refresh charts after updating data/CTCdata.xlsx"):
+            st.cache_data.clear()
+            st.rerun()
 
-    geo_scope = st.sidebar.radio(
-        "2. Geographic scope",
-        options=["Entire SNF region", "Single province", "Multiple provinces"],
-        index=0,
-    )
+        if is_production_view:
+            prod_df, provinces_all, crops_all = load_production_for_year(
+                year, data_mtime=get_ctcdata_mtime()
+            )
+            residue_types_all: list[str] = []
+            df_year = None
+        else:
+            df_year, provinces_all, crops_all = load_residue_data_for_year(
+                year, data_mtime=get_ctcdata_mtime()
+            )
+            residue_types_all = []
+            if df_year is not None and "residue_type" in df_year.columns:
+                residue_types_all = sorted(df_year["residue_type"].dropna().unique().tolist())
 
-    if geo_scope == "Entire SNF region":
-        selected_provinces = SNF_PROVINCES
-    elif geo_scope == "Single province":
-        selected_provinces = [st.sidebar.selectbox("Province", options=SNF_PROVINCES)]
-    else:
-        selected_provinces = st.sidebar.multiselect(
-            "Provinces",
-            options=SNF_PROVINCES,
-            default=SNF_PROVINCES,
+        mid = st.columns([1, 2])
+        geo_scope = mid[0].radio(
+            "2. Geographic scope",
+            options=["Entire SNF region", "Single province", "Multiple provinces"],
+            index=0,
         )
 
-    selected_crops = st.sidebar.multiselect(
-        "3. Crops",
-        options=crops_all,
-        default=crops_all,
-    )
+        if geo_scope == "Entire SNF region":
+            selected_provinces = SNF_PROVINCES
+        elif geo_scope == "Single province":
+            selected_provinces = [mid[1].selectbox("Province", options=SNF_PROVINCES)]
+        else:
+            selected_provinces = mid[1].multiselect(
+                "Provinces",
+                options=SNF_PROVINCES,
+                default=SNF_PROVINCES,
+            )
 
-    selected_residue_types = None
-    if not is_production_view and residue_types_all:
-        selected_residue_types = st.sidebar.multiselect(
-            "Residue type",
-            options=residue_types_all,
-            default=residue_types_all,
+        selected_crops = st.multiselect(
+            "3. Crops",
+            options=crops_all,
+            default=crops_all,
         )
 
-    utilization_rate = 1.0
-    if data_type_label in PRODUCT_TYPES:
-        utilization_percent = st.sidebar.slider(
-            "4. Residue utilization (%)",
-            min_value=1,
-            max_value=100,
-            value=50,
-            step=1,
-        )
-        utilization_rate = utilization_percent / 100.0
+        selected_residue_types = None
+        if not is_production_view and residue_types_all:
+            selected_residue_types = st.multiselect(
+                "Residue type",
+                options=residue_types_all,
+                default=residue_types_all,
+            )
+
+        utilization_rate = 1.0
+        if data_type_label in PRODUCT_TYPES:
+            utilization_percent = st.slider(
+                "4. Residue utilization (%)",
+                min_value=1,
+                max_value=100,
+                value=50,
+                step=1,
+            )
+            utilization_rate = utilization_percent / 100.0
 
     if is_production_view:
         grouped = aggregate_production_for_view(
@@ -700,12 +689,21 @@ def main():
     inject_global_styles()
     render_creator_gate()
 
-    st.sidebar.header("Research Tool")
-    st.sidebar.markdown("**Circular Cultivation and Chemistry SusTool**")
-    if is_creator():
-        st.sidebar.caption("Maintainer mode")
+    # Top navigation in the main area so it always works inside an iframe
+    # (independent of whether the Streamlit sidebar is open).
+    options = navigation_options()
+    if "active_subpanel" not in st.session_state or st.session_state["active_subpanel"] not in options:
+        st.session_state["active_subpanel"] = options[0]
 
-    subpanel = st.sidebar.radio("Subpanel", options=navigation_options(), index=0)
+    subpanel = st.radio(
+        "Navigate",
+        options=options,
+        index=options.index(st.session_state["active_subpanel"]),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="active_subpanel",
+    )
+    st.markdown("<hr style='margin-top:0.2rem; margin-bottom:0.8rem;'/>", unsafe_allow_html=True)
 
     if subpanel == "Homepage":
         render_home()
