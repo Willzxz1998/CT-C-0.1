@@ -120,6 +120,8 @@ def read_excel_data(path: str | Path = EXCEL_PATH) -> pd.DataFrame:
             COLS["crop_residue"]: "crop",
             COLS["residue_type"]: "residue_type",
             COLS["biochar_yield"]: "biochar_yield",
+            COLS["initial_moisture"]: "initial_moisture",
+            COLS["final_moisture"]: "final_moisture",
             COLS["pyrolysis_tech"]: "pyrolysis_tech",
             COLS["compost_yield"]: "compost_yield",
             COLS["composting_tech"]: "composting_tech",
@@ -138,6 +140,12 @@ def read_excel_data(path: str | Path = EXCEL_PATH) -> pd.DataFrame:
     prod_std["production_kt"] = pd.to_numeric(prod_std["production_kt"], errors="coerce").fillna(0.0)
     residue_merged["residue_kt"] = pd.to_numeric(residue_merged["residue_kt"], errors="coerce").fillna(0.0)
     residue_merged["biochar_yield"] = pd.to_numeric(residue_merged["biochar_yield"], errors="coerce")
+    residue_merged["initial_moisture"] = pd.to_numeric(
+        residue_merged.get("initial_moisture"), errors="coerce"
+    )
+    residue_merged["final_moisture"] = pd.to_numeric(
+        residue_merged.get("final_moisture"), errors="coerce"
+    )
     residue_merged["compost_yield"] = pd.to_numeric(residue_merged["compost_yield"], errors="coerce")
     residue_merged["pyrolysis_tech"] = residue_merged["pyrolysis_tech"].fillna("Data unavailable")
     residue_merged["composting_tech"] = residue_merged["composting_tech"].fillna("Data unavailable")
@@ -147,6 +155,8 @@ def read_excel_data(path: str | Path = EXCEL_PATH) -> pd.DataFrame:
         .agg(
             residue_kt=("residue_kt", "sum"),
             biochar_yield=("biochar_yield", "mean"),
+            initial_moisture=("initial_moisture", "first"),
+            final_moisture=("final_moisture", "first"),
             compost_yield=("compost_yield", "mean"),
             pyrolysis_tech=("pyrolysis_tech", "first"),
             composting_tech=("composting_tech", "first"),

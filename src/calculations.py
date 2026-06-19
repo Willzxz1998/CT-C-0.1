@@ -5,6 +5,25 @@ import pandas as pd
 from .config import DATA_TYPES, PRODUCTION_VIEW
 
 
+def moisture_correction_factor(
+    initial_moisture: pd.Series,
+    final_moisture: pd.Series,
+) -> pd.Series:
+    """
+    (100 - initial moisture) / (100 - final moisture).
+
+    Excel stores moisture as fractions (e.g. 0.9 = 90%); values > 1 are treated as %.
+    """
+    initial = pd.to_numeric(initial_moisture, errors="coerce")
+    final = pd.to_numeric(final_moisture, errors="coerce")
+    initial_pct = initial.where(initial > 1, initial * 100)
+    final_pct = final.where(final > 1, final * 100)
+    denom = 100 - final_pct
+    factor = (100 - initial_pct) / denom
+    valid = initial.notna() & final.notna() & (denom > 0)
+    return factor.where(valid, 1.0)
+
+
 def add_potential_products(
     df: pd.DataFrame,
     utilization_rate: float = 1.0,
@@ -13,7 +32,13 @@ def add_potential_products(
     df["residue_usable_kt"] = (
         df["residue_kt"] * df.get("residue_usable_fraction", 1.0) * utilization_rate
     )
-    df["biochar_potential_kt"] = df["residue_usable_kt"] * df.get("biochar_yield", 0.0)
+    moisture_factor = moisture_correction_factor(
+        df.get("initial_moisture", pd.Series(dtype=float)),
+        df.get("final_moisture", pd.Series(dtype=float)),
+    )
+    df["biochar_potential_kt"] = (
+        df["residue_usable_kt"] * df.get("biochar_yield", 0.0) * moisture_factor
+    )
     df["compost_potential_kt"] = df["residue_usable_kt"] * df.get("compost_yield", 0.0)
     return df
 

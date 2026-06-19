@@ -73,6 +73,8 @@ COLS = {
     "residue_type": "Residue_type",
     "residue_kt": "Residue",
     "biochar_yield": "Biochar_yield",
+    "initial_moisture": "Initial_moisture",
+    "final_moisture": "Final_moisture",
     "pyrolysis_tech": "Pyrolysis_tech",
     "compost_yield": "Compost_yield",
     "composting_tech": "Composting_tech",
