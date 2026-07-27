@@ -9,8 +9,10 @@ import pandas as pd
 import streamlit as st
 
 from src.config import (
+    CITATION_FORMAT_EXAMPLE,
     CREATOR_ONLY_SUBPANELS,
     CREATOR_PASSWORD,
+    DATA_CONTRIBUTION_PANEL,
     DATA_TYPES,
     DEFAULT_YEAR,
     EXCEL_PATH,
@@ -18,7 +20,15 @@ from src.config import (
     PRODUCTION_VIEW,
     PRODUCT_TYPES,
     SNF_PROVINCES,
+    USER_MANUAL_PANEL,
+    USER_MANUAL_PATH,
     USER_SUBPANELS,
+)
+from src.terminology import help_text, term_label
+from src.ui_helpers import (
+    deployment_stability_note,
+    render_homepage_product_highlights,
+    render_site_footer,
 )
 from src.data_loader import (
     filter_by_year,
@@ -135,6 +145,12 @@ button[title="Exit fullscreen"] {
   padding: 0.85rem 1rem;
   border: 1px solid #c5e1a5;
   margin-bottom: 1rem;
+}
+.site-footer {
+  background: #f8fbf8;
+  border-top: 1px solid #c8e6c9;
+  padding: 1.5rem 0 0.5rem 0;
+  margin-top: 2rem;
 }
 </style>
 """,
@@ -302,6 +318,8 @@ def render_home():
     m3.metric("SNF provinces covered", summary["province_count"])
     m4.metric("Production records", summary["record_count"])
 
+    render_homepage_product_highlights()
+
     st.markdown("### How to use this tool")
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -319,7 +337,7 @@ Open <i>Circular horticultural cultivation value chain</i> and pick production, 
             """
 <div class="how-card">
 <b>2. Filter the region</b><br>
-Select year, geographic scope, and crops to focus on the SNF provinces relevant to your analysis.
+Select geographic scope and crops to focus on the SNF provinces relevant to your analysis.
 </div>
 """,
             unsafe_allow_html=True,
@@ -351,23 +369,26 @@ Compare crop rankings, provincial contributions, stacked overviews, and the inte
 """
     )
 
+    st.markdown('<div class="site-footer">', unsafe_allow_html=True)
+    render_site_footer()
+    st.markdown("</div>", unsafe_allow_html=True)
+
 
 def render_visualization_panel():
     inject_global_styles()
     st.title("Circular horticultural cultivation value chain")
 
     with st.expander("Filters", expanded=True):
-        top = st.columns([2, 1, 1])
+        top = st.columns([2, 1])
         data_type_label = top[0].selectbox(
             "1. Data type",
             options=list(DATA_TYPES.keys()),
             index=0,
+            help=help_text("Residue inventory"),
         )
         is_production_view = data_type_label == PRODUCTION_VIEW
-        year = top[1].number_input(
-            "Year", min_value=2000, max_value=2100, value=DEFAULT_YEAR, step=1
-        )
-        if top[2].button("Reload data", help="Refresh charts after updating data/CTCdata.xlsx"):
+        year = DEFAULT_YEAR  # Fixed reference year; documented in User Manual
+        if top[1].button("Reload data", help="Refresh charts after updating data/CTCdata.xlsx"):
             st.cache_data.clear()
             st.rerun()
 
@@ -415,6 +436,7 @@ def render_visualization_panel():
                 "Residue type",
                 options=residue_types_all,
                 default=residue_types_all,
+                help=help_text("Resid"),
             )
 
         utilization_rate = 1.0
@@ -425,8 +447,29 @@ def render_visualization_panel():
                 max_value=100,
                 value=50,
                 step=1,
+                help=help_text("Residue utilization"),
             )
             utilization_rate = utilization_percent / 100.0
+
+    # Terminology hints for the active view
+    if data_type_label == "Potential Biochar Production":
+        st.caption(
+            f"{term_label('Biochar', 'Biochar')} (dry mass) · "
+            f"{term_label('Pyrolysis', 'Pyrolysis')} · "
+            f"{term_label('Biochar yield', 'Biochar yield')}",
+            unsafe_allow_html=True,
+        )
+    elif data_type_label == "Potential Compost Production":
+        st.caption(
+            f"{term_label('Compost', 'Compost')} (wet mass) · "
+            f"{term_label('Residue inventory', 'Residue inventory')}",
+            unsafe_allow_html=True,
+        )
+    elif data_type_label == "Residue Inventory Overview":
+        st.caption(
+            f"{term_label('Residue inventory', 'Residue inventory')} (wet mass)",
+            unsafe_allow_html=True,
+        )
 
     if is_production_view:
         grouped = aggregate_production_for_view(
@@ -455,7 +498,6 @@ def render_visualization_panel():
 
     summary_bits = [
         f"**View:** {data_type_label}",
-        f"**Year:** {year}",
         f"**Provinces:** {', '.join(selected_provinces) if selected_provinces else 'None'}",
         f"**Crops:** {', '.join(selected_crops) if selected_crops else 'None'}",
     ]
@@ -485,30 +527,51 @@ def render_visualization_panel():
     by_crop_with_hover = by_crop.copy()
     if data_type_label == "Potential Biochar Production":
         hover_info_col = "hover_info"
+
+        def _biochar_hover(g: pd.DataFrame) -> pd.Series:
+            parts: list[str] = []
+            for _, row in g.drop_duplicates(subset=["pyrolysis_tech"]).iterrows():
+                tech = str(row.get("pyrolysis_tech", "")).strip()
+                if not tech or tech.lower() == "data unavailable":
+                    continue
+                y = pd.to_numeric(row.get("biochar_yield"), errors="coerce")
+                if pd.notna(y) and y > 0:
+                    parts.append(f"{tech} — Biochar yield: {y * 100:.1f}%")
+                else:
+                    parts.append(f"{tech} — Biochar yield: n/a")
+            hover = "; ".join(sorted(parts)[:4]) if parts else "No pyrolysis record"
+            return pd.Series({"hover_info": hover})
+
         meta = (
             filtered_for_tech.groupby("crop", as_index=False)
-            .apply(
-                lambda g: pd.Series(
-                    {
-                        "hover_info": "Pyrolysis: "
-                        + "; ".join(
-                            sorted(
-                                g["pyrolysis_tech"]
-                                .astype(str)
-                                .str.strip()
-                                .loc[lambda s: (s != "") & (s.str.lower() != "data unavailable")]
-                                .unique()
-                            )[:3]
-                        )
-                    }
-                )
-            )
+            .apply(_biochar_hover, include_groups=False)
             .reset_index(drop=True)
         )
-        meta["hover_info"] = meta["hover_info"].replace(
-            "Pyrolysis: ", "Pyrolysis: no available technology record"
-        )
         by_crop_with_hover = by_crop.merge(meta, on="crop", how="left")
+
+        with st.expander("Pyrolysis technology and biochar yield (reference)", expanded=False):
+            ref = (
+                filtered_for_tech[pd.to_numeric(filtered_for_tech["biochar_yield"], errors="coerce") > 0]
+                .drop_duplicates(subset=["crop", "pyrolysis_tech", "biochar_yield"])
+                .sort_values(["crop", "pyrolysis_tech"])
+            )
+            if ref.empty:
+                st.caption("No pyrolysis records for the current selection.")
+            else:
+                display = ref.assign(
+                    **{
+                        "Pyrolysis technology": ref["pyrolysis_tech"].astype(str),
+                        "Biochar yield": (
+                            pd.to_numeric(ref["biochar_yield"], errors="coerce") * 100
+                        ).map(lambda x: f"{x:.1f}%"),
+                        "Crop": ref["crop"],
+                    }
+                )
+                st.dataframe(
+                    display[["Crop", "Pyrolysis technology", "Biochar yield"]],
+                    use_container_width=True,
+                    hide_index=True,
+                )
     elif data_type_label == "Potential Compost Production":
         hover_info_col = "hover_info"
         meta = (
@@ -580,14 +643,36 @@ def render_visualization_panel():
         st.plotly_chart(fig_map, use_container_width=True)
 
 
-def render_missing_data_panel():
-    st.title("Missing data")
+def render_data_contribution_panel():
+    st.title(DATA_CONTRIBUTION_PANEL)
     st.markdown(
-        "Help us improve this tool. If you have horticultural production, residue, "
-        "or conversion data for the SNF region that is missing or could be updated, "
-        "please share it using the form below. Submissions are reviewed by the research team."
+        """
+Help us expand and improve the SNF horticultural database. You can contribute:
+
+- **Production data** for the **23 vegetables and 10 fruit crops** in the study region;
+- **Biochar yield** obtained from your residues (dry-mass basis);
+- Corresponding **pyrolysis technologies** and process conditions;
+- **References and data sources** supporting your submission.
+
+Accepted contributions will be reviewed by the research team. **Contributors whose data are accepted will receive an acknowledgement email.**
+"""
     )
-    year = st.number_input("Year", min_value=2000, max_value=2100, value=DEFAULT_YEAR, step=1)
+
+    st.markdown("#### Submission guidelines")
+    st.markdown(
+        f"""
+- Use **wet mass (kt)** for residue inventory and **dry mass** for biochar yield unless stated otherwise.
+- Align crop names with the project crop list where possible.
+- Provide **complete metadata**: province/NUTS ID, crop, residue type, units, and method.
+- Include a **standard citation** for your source (see format below).
+
+**Required citation format (example):**
+
+> {CITATION_FORMAT_EXAMPLE}
+"""
+    )
+
+    year = DEFAULT_YEAR
     df_year, _, _ = load_residue_data_for_year(year, data_mtime=get_ctcdata_mtime())
 
     missing_prod = df_year[df_year["missing_production"]][["nuts_id", "province", "crop"]].drop_duplicates()
@@ -598,37 +683,69 @@ def render_missing_data_panel():
         ["nuts_id", "province", "crop", "residue_type"]
     ].drop_duplicates()
 
-    # Detailed gap tables are only useful for maintainers; keep them hidden from public users.
     if is_creator():
         c1, c2, c3 = st.columns(3)
         c1.metric("Missing crop production records", len(missing_prod))
         c2.metric("Missing residue records", len(missing_residue))
         c3.metric("Missing biochar-yield records", len(missing_biochar))
 
-        st.subheader("Missing crop production")
+        st.subheader("Internal gap tables (maintainers)")
         st.dataframe(missing_prod, use_container_width=True, hide_index=True)
-        st.subheader("Missing residue inventory")
         st.dataframe(missing_residue, use_container_width=True, hide_index=True)
-        st.subheader("Missing biochar yield")
         st.dataframe(missing_biochar, use_container_width=True, hide_index=True)
         st.markdown("---")
 
-    st.subheader("Submit missing data")
-    st.caption("Your submission is saved and reviewed by the research team.")
+    st.subheader("Submit your data")
+    st.caption("Fields marked with guidance help us validate and cite your contribution.")
 
-    with st.form("missing_data_form", clear_on_submit=True):
+    with st.form("data_contribution_form", clear_on_submit=True):
+        st.markdown("**Contact (for acknowledgement email)**")
+        contributor_email = st.text_input("Your email address", placeholder="name@institution.edu")
+
         col1, col2 = st.columns(2)
-        nuts_id = col1.text_input("NUTS_ID", value="BE23")
-        province = col2.text_input("Province", value="East Flanders")
+        nuts_id = col1.text_input("NUTS_ID", value="BE23", help=help_text("NUTS2"))
+        province = col2.selectbox("Province", options=SNF_PROVINCES)
         crop = col1.text_input("Crop", value="Blueberry")
-        residue_type = col2.text_input("Residue type", value="Resid")
-        residue_kt = col1.number_input("Residue (kt)", min_value=0.0, value=10.0, step=0.1)
-        biochar_yield = col2.number_input("Biochar yield", min_value=0.0, value=0.0, step=0.01)
-        pyrolysis_tech = st.text_input("Pyrolysis technology parameters")
-        notes = st.text_area("Notes / source")
-        submitted = st.form_submit_button("Save submission")
+        residue_type = col2.selectbox(
+            "Residue type",
+            options=["Resid", "Farm food loss"],
+            help=help_text("Resid"),
+        )
+        production_kt = col1.number_input("Production (kt, optional)", min_value=0.0, value=0.0, step=0.1)
+        residue_kt = col2.number_input(
+            "Residue inventory (kt, wet mass)",
+            min_value=0.0,
+            value=10.0,
+            step=0.1,
+            help=help_text("Residue inventory"),
+        )
+        biochar_yield = col1.number_input(
+            "Biochar yield (dry mass ratio, e.g. 0.18 = 18%)",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.0,
+            step=0.01,
+            help=help_text("Biochar yield"),
+        )
+        pyrolysis_tech = col2.text_input(
+            "Pyrolysis technology / conditions",
+            help=help_text("Pyrolysis"),
+        )
+        citation = st.text_area(
+            "Reference / citation (required format)",
+            placeholder=CITATION_FORMAT_EXAMPLE,
+        )
+        notes = st.text_area("Notes, methods, and data quality information")
+        submitted = st.form_submit_button("Submit contribution")
 
     if submitted:
+        if not contributor_email.strip():
+            st.error("Please provide your email address for acknowledgement.")
+            return
+        if not citation.strip():
+            st.error("Please provide a reference/citation for your data.")
+            return
+
         log_path = Path(MISSING_DATA_LOG_PATH)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         row = pd.DataFrame(
@@ -636,13 +753,16 @@ def render_missing_data_panel():
                 {
                     "submitted_at_utc": datetime.utcnow().isoformat(),
                     "year": year,
+                    "contributor_email": contributor_email.strip(),
                     "nuts_id": nuts_id,
                     "province": province,
                     "crop": crop,
                     "residue_type": residue_type,
+                    "production_kt": production_kt,
                     "residue_kt": residue_kt,
                     "biochar_yield": biochar_yield,
                     "pyrolysis_tech": pyrolysis_tech,
+                    "citation": citation.strip(),
                     "notes": notes,
                 }
             ]
@@ -653,7 +773,19 @@ def render_missing_data_panel():
         else:
             out = row
         out.to_csv(log_path, index=False)
-        st.success("Submission saved successfully.")
+        st.success(
+            "Thank you — your contribution was saved and will be reviewed. "
+            "If accepted, you will receive an acknowledgement email."
+        )
+
+
+def render_user_manual_panel():
+    st.title(USER_MANUAL_PANEL)
+    manual_path = Path(USER_MANUAL_PATH)
+    if manual_path.exists():
+        st.markdown(manual_path.read_text(encoding="utf-8"))
+    else:
+        st.warning("User manual file not found.")
 
 
 def render_about():
@@ -669,15 +801,15 @@ def render_about():
 
 ### Maintainer access
 
-- Public users see browsing and visualisation only.
-- Maintainers: open the app with `?maintainer=1` and sign in via the sidebar (password in Streamlit secrets as `creator_password`, or env `SUSTOOL_CREATOR_PASSWORD`).
-- Optional: set `creator_mode = true` in secrets to enable maintainer tools without a password.
+- Public users see browsing, visualisation, Data Contribution, and User Manual.
+- Maintainers: open the app with `?maintainer=1` and sign in (password in Streamlit secrets as `creator_password`).
 
 ### Deployment
 
 Push updates to GitHub and reboot the Streamlit Cloud app to refresh the live deployment.
 """
     )
+    st.markdown(deployment_stability_note())
 
 
 def render_references_panel():
@@ -709,8 +841,10 @@ def main():
         render_home()
     elif subpanel == "Circular horticultural cultivation value chain":
         render_visualization_panel()
-    elif subpanel == "Missing data":
-        render_missing_data_panel()
+    elif subpanel == DATA_CONTRIBUTION_PANEL:
+        render_data_contribution_panel()
+    elif subpanel == USER_MANUAL_PANEL:
+        render_user_manual_panel()
     elif subpanel == "References":
         render_references_panel()
     elif subpanel == "CIRCULCA (Coming soon)":
