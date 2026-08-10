@@ -1,8 +1,14 @@
 # Self-host SusTool next to WordPress (lcatraining.nl)
 
-Use these files on the server that hosts [lcatraining.nl](https://www.lcatraining.nl).
+**Preferred public URL:** `https://www.lcatraining.nl/sustool-app/`
 
-## Quick path (systemd + nginx)
+Your host uses **Apache** (confirmed from WordPress System Info), document root:
+
+`/data/www/vhosts/lcatraining.nl/httpdocs/`
+
+See also: `docs/FIND_SSH_ACCESS.md` (how to find SSH credentials in Plesk).
+
+## Quick path (systemd + Apache)
 
 ### 1. On the server (SSH)
 
@@ -26,33 +32,38 @@ sudo systemctl enable --now sustool
 sudo systemctl status sustool
 ```
 
-Streamlit should listen on `127.0.0.1:8501` only (not public).
+Streamlit listens on `127.0.0.1:8501` only.
 
-### 3. nginx reverse proxy
+### 3. Apache reverse proxy (not nginx)
 
-Copy the snippet from `nginx-sustool.conf` into your site’s nginx config  
-(often `/etc/nginx/sites-available/lcatraining.nl` or a file under `conf.d/`).
+Enable modules (Debian/Ubuntu style; on Plesk use the panel or ask IT):
 
 ```bash
-sudo nginx -t && sudo systemctl reload nginx
+sudo a2enmod proxy proxy_http proxy_wstunnel rewrite headers ssl
+```
+
+Add the directives from `deploy/apache-sustool.conf` to the **HTTPS** VirtualHost for `www.lcatraining.nl`
+(Plesk: Domains → Apache & nginx Settings → Additional directives for HTTPS).
+
+```bash
+sudo apachectl configtest && sudo systemctl reload apache2
 ```
 
 ### 4. SSL
 
-If WordPress already uses HTTPS with Let's Encrypt, the same certificate usually covers `/sustool-app/`.
+WordPress already uses `https://www.lcatraining.nl`. Reuse the same certificate for `/sustool-app/`.
+If needed: Certbot / Plesk SSL/TLS Certificates.
 
-If not:
+### 5. WordPress iframe
 
-```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d www.lcatraining.nl -d lcatraining.nl
+```html
+<iframe
+  src="https://www.lcatraining.nl/sustool-app/?embed=true"
+  style="width:100%; height:1200px; border:none;"
+  allowfullscreen
+  title="Circular Cultivation and Chemistry Sustainability Tool">
+</iframe>
 ```
-
-### 5. WordPress
-
-Edit the SusTool page Custom HTML iframe `src` to:
-
-`https://www.lcatraining.nl/sustool-app/?embed=true`
 
 ---
 
@@ -63,4 +74,4 @@ cd /opt/sustool
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
-Then use the same nginx proxy to `127.0.0.1:8501`.
+Then use the same Apache proxy to `127.0.0.1:8501`.
