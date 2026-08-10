@@ -1,0 +1,20 @@
+[Unit]
+Description=Circular Cultivation and Chemistry Sustainability Tool (Streamlit)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/sustool
+Environment=PATH=/opt/sustool/.venv/bin:/usr/bin
+ExecStart=/opt/sustool/.venv/bin/streamlit run app.py \
+  --server.port 8501 \
+  --server.address 127.0.0.1 \
+  --server.headless true \
+  --browser.gatherUsageStats false
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

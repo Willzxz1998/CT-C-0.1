@@ -343,12 +343,16 @@ def load_references_text() -> str:
     refs: list[str] = []
     capture = False
     for line in paragraphs:
-        if line.strip().lower().startswith("reference"):
+        stripped = line.strip()
+        lower = stripped.lower()
+        if lower == "reference" or lower.startswith("reference"):
             capture = True
-        if capture:
-            refs.append(line)
+            # Skip the heading itself — the page already has a "References" title.
+            continue
+        if capture and stripped:
+            refs.append(stripped)
     if not refs:
-        refs = paragraphs[-12:]
+        refs = [p for p in paragraphs[-12:] if not p.strip().lower().startswith("reference")]
     return "\n\n".join(refs)
 
 
@@ -358,8 +362,8 @@ def render_home():
     st.markdown(
         """
 <div class="hero-banner">
-  <h1>Circular Cultivation and Chemistry SusTool</h1>
-  <p>Explore horticultural production, residue inventories, and circular valorisation pathways across the SNF region.</p>
+  <h1>Circular Cultivation and Chemistry Sustainability Tool</h1>
+  <p>Explore horticultural production, residue inventories, and circular valorisation pathways across the southern Netherlands and Flanders region.</p>
 </div>
 """,
         unsafe_allow_html=True,
@@ -684,7 +688,7 @@ def render_data_contribution_panel():
         """
 Help us expand and improve the SNF horticultural database. You can contribute:
 
-- **Production data** for the **23 vegetables and 10 fruit crops** in the study region;
+- **Production data** for **all horticultural crops** in the study region;
 - **Biochar yield** obtained from your residues (dry-mass basis);
 - Corresponding **pyrolysis technologies** and process conditions;
 - **References and data sources** supporting your submission.
@@ -815,7 +819,7 @@ Accepted contributions will be reviewed by the research team. **Contributors who
 
 
 def render_user_manual_panel():
-    st.title(USER_MANUAL_PANEL)
+    # Navigation already labels this panel; avoid repeating "User Manual" as a page title.
     manual_path = Path(USER_MANUAL_PATH)
     if manual_path.exists():
         st.markdown(manual_path.read_text(encoding="utf-8"))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 CONTACT_EMAIL = "xinzhi.zhong@maastrichtuniversity.nl"
@@ -11,8 +12,25 @@ TOOL_CITATION = (
     "https://www.lcatraining.nl/index.php/sustool/ (accessed YYYY-MM-DD)."
 )
 RECOMMENDED_LICENSE = "Creative Commons Attribution 4.0 International (CC BY 4.0)"
-INTERREG_LOGO_PATH = Path("assets/interreg_vlaanderen_nederland.jpeg")
+INTERREG_LOGO_PATH = Path("assets/interreg_vlaanderen_nederland.svg")
 INTERREG_PROJECT_NAME = "Interreg Vlaanderen–Nederland · Circulaire Teelt en Chemie"
+
+
+def _strip_inline_citations(text: str) -> str:
+    """Remove parenthetical author–year citations such as (Ghiat et al., 2022)."""
+    cleaned = re.sub(r"\s*\([A-Z][^)]*\d{4}[^)]*\)", "", text)
+    return re.sub(r"\s{2,}", " ", cleaned).strip()
+
+
+def _sentence_case(text: str) -> str:
+    """Capitalise the first alphabetic character of a sentence."""
+    text = text.strip()
+    if not text:
+        return text
+    for i, ch in enumerate(text):
+        if ch.isalpha():
+            return text[:i] + ch.upper() + text[i + 1 :]
+    return text
 
 
 def render_interreg_logo(*, width: int = 220) -> None:
@@ -22,7 +40,11 @@ def render_interreg_logo(*, width: int = 220) -> None:
     if INTERREG_LOGO_PATH.exists():
         st.image(str(INTERREG_LOGO_PATH), width=width)
     else:
-        st.caption("Interreg Vlaanderen–Nederland")
+        fallback = Path("assets/interreg_vlaanderen_nederland.jpeg")
+        if fallback.exists():
+            st.image(str(fallback), width=width)
+        else:
+            st.caption("Interreg Vlaanderen–Nederland")
 
 
 def render_site_header() -> None:
@@ -42,7 +64,7 @@ def render_site_header() -> None:
 <div class="site-header-text">
   <strong>{INTERREG_PROJECT_NAME}</strong><br/>
   <span style="color:#546e7a;font-size:0.95rem;">
-    Circular Cultivation and Chemistry — Sustainability Tool (SusTool)
+    Circular Cultivation and Chemistry — Sustainability Tool
   </span>
 </div>
 """,
@@ -95,14 +117,14 @@ def render_homepage_product_highlights() -> None:
             "Biochar",
             "#1b5e20",
             "Carbon-rich solid from pyrolysis of horticultural residues; "
-            "potential for soil amendment and carbon storage (dry mass basis).",
+            "potential for soil amendment and carbon storage.",
         ),
         (
             c2,
             "Compost",
             "#2e7d32",
             "Stabilised organic material from aerobic decomposition; "
-            "supports nutrient recycling and soil health (wet mass basis).",
+            "supports nutrient recycling and soil health.",
         ),
         (
             c3,
@@ -141,7 +163,6 @@ def render_structured_home_intro(paragraphs: list[str]) -> None:
     project_blurb = ""
     tool_purpose = ""
     tool_objective = ""
-    tool_detail = ""
     tracks: list[str] = []
     section = None
 
@@ -166,8 +187,8 @@ def render_structured_home_intro(paragraphs: list[str]) -> None:
             tool_objective = line.split(":", 1)[-1].strip()
             section = "tool"
             continue
+        # Skip the long "Specifically, ..." inventory sentence on the homepage.
         if lower.startswith("specifically,"):
-            tool_detail = line
             section = "tool"
             continue
 
@@ -175,17 +196,25 @@ def render_structured_home_intro(paragraphs: list[str]) -> None:
             project_blurb = line if not project_blurb else f"{project_blurb} {line}"
         elif section == "tracks":
             if line and not line.endswith(":"):
-                tracks.append(line.rstrip("."))
-        elif section == "tool" and not any(
-            lower.startswith(p) for p in ("purpose of", "objective of", "specifically,")
-        ):
-            if line:
-                tool_detail = f"{tool_detail} {line}".strip() if tool_detail else line
+                tracks.append(_sentence_case(line.rstrip(".")))
+
+    tool_purpose = _sentence_case(_strip_inline_citations(tool_purpose))
+    tool_objective = _sentence_case(_strip_inline_citations(tool_objective))
+    # Remove year mention from the objective (database year is documented in the User Manual).
+    tool_objective = re.sub(
+        r"\s*of year\s+\d{4}\.?",
+        ".",
+        tool_objective,
+        flags=re.IGNORECASE,
+    )
+    tool_objective = re.sub(r"\.\s*\.", ".", tool_objective).strip()
+    if tool_objective and not tool_objective.endswith("."):
+        tool_objective += "."
 
     st.markdown("### About the project")
     if project_blurb:
         st.markdown(
-            f'<div class="intro-panel">{project_blurb}</div>',
+            f'<div class="intro-panel">{_sentence_case(project_blurb)}</div>',
             unsafe_allow_html=True,
         )
 
@@ -208,11 +237,6 @@ def render_structured_home_intro(paragraphs: list[str]) -> None:
         st.markdown(f"**Purpose.** {tool_purpose}")
     if tool_objective:
         st.markdown(f"**Objective.** {tool_objective}")
-    if tool_detail:
-        st.markdown(
-            f'<div class="intro-panel">{tool_detail}</div>',
-            unsafe_allow_html=True,
-        )
 
 
 def render_site_footer() -> None:
@@ -294,31 +318,7 @@ def deployment_stability_note() -> str:
 
 **Can code keep the app always awake on Streamlit Community (free)?**  
 **No.** There is no supported in-app keep-alive that reliably prevents sleep on the free tier.
-External ping scripts may violate fair-use policies and are not recommended.
 
-**Cause:** Free-tier apps **spin down after ~15 minutes of inactivity**. The first visitor may see
-*“Get this app back”* while the container restarts. This is a **hosting-platform limitation**.
-
-**Alternatives for 24/7 uptime (research group / WordPress embedding):**
-
-| Platform | Uptime | WordPress embed |
-|----------|--------|-----------------|
-| **Self-hosted** (university/group Linux server + nginx) | 24/7 | iframe → `https://lcatraining.nl/.../sustool/` |
-| **Streamlit Cloud paid** | Higher | iframe → `*.streamlit.app/?embed=true` |
-| **Railway / Render / Fly.io** (Docker) | 24/7* | iframe → your custom URL |
-| **Hugging Face Spaces** (Streamlit) | Usually always on | iframe (check CORS/embed) |
-
-*Check free-tier limits on each platform.
-
-**What we need from your group to self-host on lcatraining.nl:**
-
-1. **Server access** — SSH to the WordPress host (or a dedicated VM).
-2. **Sub-path or subdomain** — e.g. `lcatraining.nl/sustool-app/` proxied to Streamlit on port 8501.
-3. **nginx (or Apache) reverse proxy** + **SSL certificate** (Let's Encrypt).
-4. **systemd service** or Docker to run `streamlit run app.py` on boot.
-5. **WordPress page** — iframe pointing to the proxied URL (not the raw `:8501` port).
-
-SusTool already supports iframe embedding (`.streamlit/config.toml`). Maintainer tools stay protected via `?maintainer=1` + password.
-
-**Public access:** Streamlit Cloud → **Settings → Sharing → Public** (remove email allow-list).
+**Long-term hosting on lcatraining.nl:** see `docs/DEPLOYMENT.md` and `deploy/` for nginx + systemd configs.
+Self-hosting requires SSH access to the WordPress/server host, nginx reverse proxy, and an SSL certificate.
 """
