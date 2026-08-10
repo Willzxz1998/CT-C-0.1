@@ -28,12 +28,14 @@ from src.terminology import help_text, term_label
 from src.ui_helpers import (
     deployment_stability_note,
     render_homepage_product_highlights,
+    render_homepage_scope_metrics,
     render_site_footer,
+    render_site_header,
+    render_structured_home_intro,
 )
 from src.data_loader import (
     filter_by_year,
     get_available_filters,
-    get_production_summary,
     read_excel_data,
     read_production_data,
 )
@@ -54,7 +56,7 @@ from src.visualizations import (
 
 
 st.set_page_config(
-    page_title="Circular Cultivation and Chemistry SusTool",
+    page_title="Circular Cultivation and Chemistry Sustainability Tool",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -127,6 +129,58 @@ button[title="Exit fullscreen"] {
   border-radius: 12px;
   padding: 1rem 1.1rem;
   box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+  min-height: 110px;
+}
+.metric-card-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #2e7d32;
+  margin-bottom: 0.45rem;
+}
+.metric-card-body {
+  font-size: 1.02rem;
+  line-height: 1.55;
+  color: #1b4332;
+}
+.site-header {
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  padding: 0.65rem 1rem 0.45rem 1rem;
+  margin-bottom: 0.75rem;
+}
+.site-header-text {
+  padding-top: 0.35rem;
+  line-height: 1.5;
+}
+.intro-panel {
+  background: #ffffff;
+  border: 1px solid #e8f0e8;
+  border-radius: 10px;
+  padding: 1rem 1.15rem;
+  margin: 0.5rem 0 1rem 0;
+  line-height: 1.72;
+  color: #263238;
+}
+.footer-panel {
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  padding: 1rem 1.15rem;
+  margin-bottom: 1rem;
+  line-height: 1.65;
+}
+.footer-panel h4 {
+  color: #1b4332;
+  margin: 0 0 0.5rem 0;
+  font-size: 1.05rem;
+}
+.footer-panel p {
+  margin: 0;
+  color: #37474f;
+  font-size: 0.95rem;
 }
 .how-card {
   background: #ffffff;
@@ -252,7 +306,7 @@ def load_intro_paragraphs() -> list[str]:
         return [line for line in intro_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     return [
         "Introduction",
-        "Circular Cultivation and Chemistry SusTool supports exploration of horticultural biomass in the SNF region.",
+        "Circular Cultivation and Chemistry SusTool supports exploration of horticultural biomass in the Southern Netherlands and Flanders region.",
     ]
 
 
@@ -300,7 +354,6 @@ def load_references_text() -> str:
 
 def render_home():
     inject_global_styles()
-    summary = get_production_summary(DEFAULT_YEAR)
 
     st.markdown(
         """
@@ -312,12 +365,7 @@ def render_home():
         unsafe_allow_html=True,
     )
 
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Production in database (kt)", f"{summary['total_production_kt']:,.1f}")
-    m2.metric("Crops with production data", summary["crop_count"])
-    m3.metric("SNF provinces covered", summary["province_count"])
-    m4.metric("Production records", summary["record_count"])
-
+    render_homepage_scope_metrics()
     render_homepage_product_highlights()
 
     st.markdown("### How to use this tool")
@@ -354,20 +402,7 @@ Compare crop rankings, provincial contributions, stacked overviews, and the inte
         )
 
     st.markdown("---")
-    intro_md = format_paragraphs_as_markdown(paragraphs_without_references(load_intro_paragraphs()))
-    st.markdown('<div class="home-content">', unsafe_allow_html=True)
-    st.markdown(intro_md)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("### Project focus")
-    st.markdown(
-        """
-1. Compile and update crop production and residue inventories for the SNF region.
-2. Compare provincial and crop-level circular valorisation opportunities.
-3. Evaluate potential biochar and compost outputs under utilisation scenarios.
-4. Support evidence-based decisions on sustainable horticultural value chains.
-"""
-    )
+    render_structured_home_intro(paragraphs_without_references(load_intro_paragraphs()))
 
     st.markdown('<div class="site-footer">', unsafe_allow_html=True)
     render_site_footer()
@@ -820,6 +855,7 @@ def render_references_panel():
 def main():
     inject_global_styles()
     render_creator_gate()
+    render_site_header()
 
     # Top navigation in the main area so it always works inside an iframe
     # (independent of whether the Streamlit sidebar is open).

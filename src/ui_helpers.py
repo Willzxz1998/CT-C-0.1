@@ -1,6 +1,8 @@
-"""Reusable UI fragments: homepage footer, product highlights, deployment notes."""
+"""Reusable UI fragments: header, footer, homepage blocks, deployment notes."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 CONTACT_EMAIL = "xinzhi.zhong@maastrichtuniversity.nl"
 TOOL_CITATION = (
@@ -9,6 +11,76 @@ TOOL_CITATION = (
     "https://www.lcatraining.nl/index.php/sustool/ (accessed YYYY-MM-DD)."
 )
 RECOMMENDED_LICENSE = "Creative Commons Attribution 4.0 International (CC BY 4.0)"
+INTERREG_LOGO_PATH = Path("assets/interreg_vlaanderen_nederland.jpeg")
+INTERREG_PROJECT_NAME = "Interreg Vlaanderen–Nederland · Circulaire Teelt en Chemie"
+
+
+def render_interreg_logo(*, width: int = 220) -> None:
+    """Show the official Interreg Vlaanderen–Nederland programme logo."""
+    import streamlit as st
+
+    if INTERREG_LOGO_PATH.exists():
+        st.image(str(INTERREG_LOGO_PATH), width=width)
+    else:
+        st.caption("Interreg Vlaanderen–Nederland")
+
+
+def render_site_header() -> None:
+    """Branding header with programme logo (shown on all pages)."""
+    import streamlit as st
+
+    st.markdown(
+        '<div class="site-header">',
+        unsafe_allow_html=True,
+    )
+    col_logo, col_text = st.columns([1, 2])
+    with col_logo:
+        render_interreg_logo(width=240)
+    with col_text:
+        st.markdown(
+            f"""
+<div class="site-header-text">
+  <strong>{INTERREG_PROJECT_NAME}</strong><br/>
+  <span style="color:#546e7a;font-size:0.95rem;">
+    Circular Cultivation and Chemistry — Sustainability Tool (SusTool)
+  </span>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_homepage_scope_metrics() -> None:
+    """Key scope indicators below the homepage hero title."""
+    import streamlit as st
+
+    items = [
+        (
+            "Horticultural crops included",
+            "33 vegetables and 10 fruits",
+        ),
+        (
+            "Region covered",
+            "5 provinces in Flanders, Belgium and 3 provinces in the southern Netherlands",
+        ),
+        (
+            "Residue-based products",
+            "Biochar, compost, coumaric acid, and more",
+        ),
+    ]
+    cols = st.columns(len(items))
+    for col, (title, body) in zip(cols, items):
+        with col:
+            st.markdown(
+                f"""
+<div class="metric-card">
+  <div class="metric-card-title">{title}</div>
+  <div class="metric-card-body">{body}</div>
+</div>
+""",
+                unsafe_allow_html=True,
+            )
 
 
 def render_homepage_product_highlights() -> None:
@@ -55,73 +127,198 @@ def render_homepage_product_highlights() -> None:
             )
 
 
-def render_site_footer() -> None:
-    """Homepage footer: funding, disclaimer, citation, license, contact."""
-    from pathlib import Path
-
+def render_structured_home_intro(paragraphs: list[str]) -> None:
+    """Render project/tool introduction from docx paragraphs with clear sections."""
     import streamlit as st
-    st.markdown("### Funding acknowledgement")
-    f1, f2 = st.columns([1, 3])
-    with f1:
-        logo_path = Path("assets/interreg_logo.svg")
-        if logo_path.exists():
-            st.image(str(logo_path), width=180)
-        else:
-            st.markdown(
-                '<a href="https://www.interreg.eu/" target="_blank" rel="noopener">Interreg</a>',
-                unsafe_allow_html=True,
-            )
-    with f2:
+
+    # Strip reference section
+    intro_lines: list[str] = []
+    for line in paragraphs:
+        if line.strip().lower().startswith("reference"):
+            break
+        intro_lines.append(line.strip())
+
+    project_blurb = ""
+    tool_purpose = ""
+    tool_objective = ""
+    tool_detail = ""
+    tracks: list[str] = []
+    section = None
+
+    for line in intro_lines:
+        lower = line.lower()
+        if line == "Introduction":
+            continue
+        if lower.startswith("about the circular cultivation"):
+            section = "project"
+            continue
+        if lower.startswith("about the sustainability tool"):
+            section = "tool"
+            continue
+        if lower.startswith("the project focuses on three tracks"):
+            section = "tracks"
+            continue
+        if lower.startswith("purpose of this tool"):
+            tool_purpose = line.split(":", 1)[-1].strip()
+            section = "tool"
+            continue
+        if lower.startswith("objective of this tool"):
+            tool_objective = line.split(":", 1)[-1].strip()
+            section = "tool"
+            continue
+        if lower.startswith("specifically,"):
+            tool_detail = line
+            section = "tool"
+            continue
+
+        if section == "project" and not lower.startswith("the project focuses"):
+            project_blurb = line if not project_blurb else f"{project_blurb} {line}"
+        elif section == "tracks":
+            if line and not line.endswith(":"):
+                tracks.append(line.rstrip("."))
+        elif section == "tool" and not any(
+            lower.startswith(p) for p in ("purpose of", "objective of", "specifically,")
+        ):
+            if line:
+                tool_detail = f"{tool_detail} {line}".strip() if tool_detail else line
+
+    st.markdown("### About the project")
+    if project_blurb:
         st.markdown(
-            "Funded by the **Interreg Circulaire Teelt en Chemie** project "
-            "(Circular Cultivation and Chemistry)."
+            f'<div class="intro-panel">{project_blurb}</div>',
+            unsafe_allow_html=True,
         )
 
-    st.markdown("### Disclaimer")
-    st.markdown(
-        """
-This Sustainability Tool is provided for **research, education, and decision-support** purposes only.
-Data and visualisations are compiled from published sources and project datasets; **no guarantee**
-is made regarding completeness, accuracy, or fitness for a particular commercial or regulatory use.
-Users remain **responsible for interpretation, verification, and any decisions** based on this tool.
-"""
-    )
+    if tracks:
+        st.markdown("#### Project focus — three tracks")
+        tcols = st.columns(min(len(tracks), 3))
+        for i, track in enumerate(tracks[:3]):
+            with tcols[i]:
+                st.markdown(
+                    f"""
+<div class="how-card">
+  <b>Track {i + 1}</b><br>{track}
+</div>
+""",
+                    unsafe_allow_html=True,
+                )
 
-    st.markdown("### Citation")
-    st.markdown(
-        f"If you use data or outputs from this tool in publications or reports, please cite:\n\n"
-        f"> {TOOL_CITATION}"
-    )
+    st.markdown("### About this Sustainability Tool")
+    if tool_purpose:
+        st.markdown(f"**Purpose.** {tool_purpose}")
+    if tool_objective:
+        st.markdown(f"**Objective.** {tool_objective}")
+    if tool_detail:
+        st.markdown(
+            f'<div class="intro-panel">{tool_detail}</div>',
+            unsafe_allow_html=True,
+        )
 
-    st.markdown("### License")
-    st.markdown(
-        f"Tool documentation and publicly shared outputs are recommended for reuse under "
-        f"**{RECOMMENDED_LICENSE}**, unless a specific dataset is subject to separate licensing. "
-        f"User-contributed data remain the property of the contributor unless otherwise agreed."
-    )
 
-    st.markdown("### Contact")
-    st.markdown(f"**Contact person:** [{CONTACT_EMAIL}](mailto:{CONTACT_EMAIL})")
+def render_site_footer() -> None:
+    """Homepage footer: funding logo, disclaimer, citation, license, contact — structured panels."""
+    import streamlit as st
+
+    st.markdown("---")
+    st.markdown("### Funding acknowledgement")
+    f1, f2 = st.columns([1, 2])
+    with f1:
+        render_interreg_logo(width=260)
+    with f2:
+        st.markdown(
+            """
+<div class="footer-panel">
+<p><strong>Funded by the Interreg Circulaire Teelt en Chemie project</strong><br/>
+(Circular Cultivation and Chemistry), supported by
+<strong>Interreg Vlaanderen–Nederland</strong>.</p>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+    note1, note2 = st.columns(2)
+    with note1:
+        st.markdown(
+            """
+<div class="footer-panel">
+<h4>Disclaimer</h4>
+<p>This Sustainability Tool is provided for <strong>research, education, and decision-support</strong>
+purposes only. Data and visualisations are compiled from published sources and project datasets;
+<strong>no guarantee</strong> is made regarding completeness, accuracy, or fitness for a particular
+commercial or regulatory use. Users remain <strong>responsible for interpretation, verification,
+and any decisions</strong> based on this tool.</p>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"""
+<div class="footer-panel">
+<h4>License</h4>
+<p>Tool documentation and publicly shared outputs are recommended for reuse under
+<strong>{RECOMMENDED_LICENSE}</strong>, unless a specific dataset is subject to separate licensing.
+User-contributed data remain the property of the contributor unless otherwise agreed.</p>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+    with note2:
+        st.markdown(
+            f"""
+<div class="footer-panel">
+<h4>Citation</h4>
+<p>If you use data or outputs from this tool in publications or reports, please cite:</p>
+<blockquote style="margin:0.5rem 0;padding:0.75rem 1rem;background:#fff;border-left:4px solid #2e7d32;">
+{TOOL_CITATION}
+</blockquote>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"""
+<div class="footer-panel">
+<h4>Contact</h4>
+<p><strong>Contact person:</strong><br/>
+<a href="mailto:{CONTACT_EMAIL}">{CONTACT_EMAIL}</a></p>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
 
 
 def deployment_stability_note() -> str:
-    """Explain Streamlit Community Cloud sleep behaviour for maintainers."""
+    """Explain Streamlit Community Cloud sleep behaviour and hosting alternatives."""
     return """
 ### Application availability (Streamlit Community Cloud)
 
-**Cause:** On the free Streamlit Community Cloud tier, apps **spin down after ~15 minutes of inactivity**.
-The first visitor after sleep may see *“Get this app back”* while the container restarts. This is a
-**hosting-platform limitation**, not a bug in SusTool.
+**Can code keep the app always awake on Streamlit Community (free)?**  
+**No.** There is no supported in-app keep-alive that reliably prevents sleep on the free tier.
+External ping scripts may violate fair-use policies and are not recommended.
 
-**What we configured in this repo:**
-- `enableCORS = false` and iframe-friendly settings in `.streamlit/config.toml` for embedding on lcatraining.nl.
-- Data cache invalidation when `data/CTCdata.xlsx` changes.
+**Cause:** Free-tier apps **spin down after ~15 minutes of inactivity**. The first visitor may see
+*“Get this app back”* while the container restarts. This is a **hosting-platform limitation**.
 
-**Feasible improvements:**
-1. **Primary access via iframe** on [lcatraining.nl](https://www.lcatraining.nl/index.php/sustool/) so users stay in the group website.
-2. **Paid Streamlit Cloud** or **self-hosted** deployment (Docker + systemd/nginx on your server) for 24/7 uptime.
-3. Optional external **uptime ping** (e.g. cron hitting the app every 10 min) — may violate free-tier fair use; not recommended long term.
+**Alternatives for 24/7 uptime (research group / WordPress embedding):**
 
-**Public access:** In Streamlit Cloud → **App settings → Sharing**, set visibility to **Public** and remove any
-email allow-list. SusTool code does not enforce email login; restrictions are only in the Cloud dashboard.
+| Platform | Uptime | WordPress embed |
+|----------|--------|-----------------|
+| **Self-hosted** (university/group Linux server + nginx) | 24/7 | iframe → `https://lcatraining.nl/.../sustool/` |
+| **Streamlit Cloud paid** | Higher | iframe → `*.streamlit.app/?embed=true` |
+| **Railway / Render / Fly.io** (Docker) | 24/7* | iframe → your custom URL |
+| **Hugging Face Spaces** (Streamlit) | Usually always on | iframe (check CORS/embed) |
+
+*Check free-tier limits on each platform.
+
+**What we need from your group to self-host on lcatraining.nl:**
+
+1. **Server access** — SSH to the WordPress host (or a dedicated VM).
+2. **Sub-path or subdomain** — e.g. `lcatraining.nl/sustool-app/` proxied to Streamlit on port 8501.
+3. **nginx (or Apache) reverse proxy** + **SSL certificate** (Let's Encrypt).
+4. **systemd service** or Docker to run `streamlit run app.py` on boot.
+5. **WordPress page** — iframe pointing to the proxied URL (not the raw `:8501` port).
+
+SusTool already supports iframe embedding (`.streamlit/config.toml`). Maintainer tools stay protected via `?maintainer=1` + password.
+
+**Public access:** Streamlit Cloud → **Settings → Sharing → Public** (remove email allow-list).
 """
