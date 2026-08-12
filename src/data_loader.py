@@ -7,11 +7,11 @@ import pandas as pd
 
 from .config import (
     COLS,
+    SHEETS,
     DEFAULT_YEAR,
     EXCEL_PATH,
     NUTS2_TO_PROVINCE,
     PROVINCE_ALIASES,
-    SHEETS,
     SNF_PROVINCES,
 )
 
@@ -209,3 +209,72 @@ def get_production_summary(year: int = DEFAULT_YEAR) -> dict:
         "province_count": int(prod["province"].nunique()),
         "record_count": int(len(prod)),
     }
+
+
+def _parse_numeric_cell(x) -> float:
+    """
+    Parse numeric values from Excel cells that may contain comma decimals and units.
+    Examples:
+      "0,370064 kg CO2eq" -> 0.370064
+      "0,7 kg residue per kg production" -> 0.7
+      -0,027 -> -0.027
+    """
+    import re
+
+    if x is None:
+        return float("nan")
+    s = str(x).strip()
+    if not s:
+        return float("nan")
+    # Replace comma decimal separator to dot, keep minus sign and digits/points.
+    s = s.replace(",", ".")
+    m = re.search(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", s)
+    if not m:
+        return float("nan")
+    return float(m.group(0))
+
+
+def read_gwp_input_data(path: str | Path = EXCEL_PATH) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Read GWP factors:
+    - Crop_pro_emi: production emission per kg crop and residue mass per kg crop
+    - Resi_uti_emission: emission per kg residue for each residue utilization
+    """
+    excel_path = _ensure_path(path)
+    crop_emi = pd.read_excel(excel_path, sheet_name=SHEETS["crop_emi"])
+    resi_uti = pd.read_excel(excel_path, sheet_name=SHEETS["resi_uti_emi"])
+
+    # Standardize columns.
+    crop_emi = crop_emi.rename(
+        columns={
+            "Crop": "crop",
+            "Emission": "production_emission_kgco2eq_per_kg_crop",
+            "Residue": "residue_kg_per_kg_crop",
+        }
+    )
+    if "crop" not in crop_emi.columns:
+        raise ValueError(f"Missing column 'Crop' in sheet '{SHEETS['crop_emi']}'")
+
+    crop_emi["production_emission_kgco2eq_per_kg_crop"] = crop_emi[
+        "production_emission_kgco2eq_per_kg_crop"
+    ].apply(_parse_numeric_cell)
+    crop_emi["residue_kg_per_kg_crop"] = crop_emi["residue_kg_per_kg_crop"].apply(_parse_numeric_cell)
+
+    # Resi utilization factors.
+    resi_uti = resi_uti.rename(
+        columns={
+            "Utilization": "utilization",
+            "Emission": "utilization_emission_kgco2eq_per_kg_residue",
+        }
+    )
+    if "utilization" not in resi_uti.columns:
+        raise ValueError(f"Missing column 'Utilization' in sheet '{SHEETS['resi_uti_emi']}'")
+
+    resi_uti["utilization_emission_kgco2eq_per_kg_residue"] = resi_uti[
+        "utilization_emission_kgco2eq_per_kg_residue"
+    ].apply(_parse_numeric_cell)
+
+    resi_uti["utilization"] = resi_uti["utilization"].astype(str).str.strip()
+
+    # Units column kept as raw text (for UI/reference).
+    return crop_emi, resi_uti

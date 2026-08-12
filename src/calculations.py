@@ -5,6 +5,45 @@ import pandas as pd
 from .config import DATA_TYPES, PRODUCTION_VIEW
 
 
+def compute_gwp_per_kg_crop(
+    *,
+    crop: str,
+    production_emission_kgco2eq_per_kg_crop: float,
+    residue_kg_per_kg_crop: float,
+    utilization_emission_kgco2eq_per_kg_residue: dict[str, float],
+    utilization_ratios_percent: dict[str, float],
+) -> dict:
+    """
+    Compute overall GWP per kg crop production.
+
+    overall = production_emission
+              + sum_i (residue_mass_per_kg_crop * ratio_i * emission_i_per_kg_residue)
+
+    where ratio_i is in [0, 1].
+    """
+    ratios_fraction = {
+        k: float(v) / 100.0 for k, v in utilization_ratios_percent.items()
+    }
+
+    residue_components: dict[str, float] = {}
+    for util, emis_per_kg_res in utilization_emission_kgco2eq_per_kg_residue.items():
+        share = ratios_fraction.get(util, 0.0)
+        residue_components[util] = (
+            float(residue_kg_per_kg_crop) * share * float(emis_per_kg_res)
+        )
+
+    overall = float(production_emission_kgco2eq_per_kg_crop) + sum(
+        residue_components.values()
+    )
+
+    return {
+        "crop": crop,
+        "production_emission": float(production_emission_kgco2eq_per_kg_crop),
+        "residue_components": residue_components,
+        "overall_emission": overall,
+    }
+
+
 def moisture_correction_factor(
     initial_moisture: pd.Series,
     final_moisture: pd.Series,

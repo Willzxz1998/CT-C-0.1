@@ -38,11 +38,13 @@ from src.data_loader import (
     get_available_filters,
     read_excel_data,
     read_production_data,
+    read_gwp_input_data,
 )
 from src.calculations import (
     add_potential_products,
     aggregate_for_view,
     aggregate_production_for_view,
+    compute_gwp_per_kg_crop,
     summary_by_crop,
     summary_by_province,
     stacked_by_province_and_crop,
@@ -51,6 +53,7 @@ from src.visualizations import (
     bar_chart_rank_by_crop,
     pie_chart_by_province,
     stacked_bar_by_province_and_crop,
+    gwp_stacked_bar_by_components,
     choropleth_snf,
 )
 
@@ -275,6 +278,12 @@ def load_production_for_year(year: int = DEFAULT_YEAR, data_mtime: float = 0.0):
     return prod, provinces, crops
 
 
+@st.cache_data
+def load_gwp_inputs(data_mtime: float = 0.0):
+    crop_emi_df, resi_uti_df = read_gwp_input_data()
+    return crop_emi_df, resi_uti_df
+
+
 def get_ctcdata_mtime() -> float:
     """Used to automatically invalidate cached data after Excel updates."""
     try:
@@ -426,12 +435,70 @@ def render_visualization_panel():
             help=help_text("Residue inventory"),
         )
         is_production_view = data_type_label == PRODUCTION_VIEW
+        is_gwp_view = data_type_label == "GWP of horticultural production and residue utilization"
         year = DEFAULT_YEAR  # Fixed reference year; documented in User Manual
         if top[1].button("Reload data", help="Refresh charts after updating data/CTCdata.xlsx"):
             st.cache_data.clear()
             st.rerun()
 
-        if is_production_view:
+        if is_gwp_view:
+            crop_emi_df, resi_uti_df = load_gwp_inputs(data_mtime=get_ctcdata_mtime())
+            crops_all = sorted(crop_emi_df["crop"].dropna().unique().tolist())
+
+            selected_crop = st.selectbox(
+                "2. Crop",
+                options=crops_all,
+                index=0,
+            )
+
+            residue_util_categories = [
+                "Animal feed",
+                "Biochar",
+                "Compost",
+                "Energy production",
+            ]
+
+            selected_residue_utils = st.multiselect(
+                "3. Residue utilization types",
+                options=residue_util_categories,
+                default=[],
+            )
+
+            utilization_ratios_percent: dict[str, float] = {
+                util: 0.0 for util in residue_util_categories
+            }
+            for util in selected_residue_utils:
+                utilization_ratios_percent[util] = float(
+                    st.number_input(
+                        f"{util} ratio (%)",
+                        min_value=0.0,
+                        max_value=100.0,
+                        value=0.0,
+                        step=1.0,
+                    )
+                )
+
+            sum_selected = sum(utilization_ratios_percent.values())
+            if sum_selected > 100.0 + 1e-9:
+                st.error("Selected residue utilization ratios cannot exceed 100%.")
+            left_on_field_percent = max(0.0, 100.0 - sum_selected)
+            st.caption(
+                f"Left on field (default): {left_on_field_percent:.0f}%"
+            )
+
+            utilization_ratios_percent["Left on field"] = left_on_field_percent
+
+            utilization_emission_map: dict[str, float] = {}
+            for _, row in resi_uti_df.iterrows():
+                util = str(row.get("utilization", "")).strip()
+                emis = row.get("utilization_emission_kgco2eq_per_kg_residue", 0.0)
+                utilization_emission_map[util] = float(emis)
+
+            # Ensure all required utilization keys exist.
+            for needed in residue_util_categories + ["Left on field"]:
+                utilization_emission_map.setdefault(needed, 0.0)
+
+        elif is_production_view:
             prod_df, provinces_all, crops_all = load_production_for_year(
                 year, data_mtime=get_ctcdata_mtime()
             )
@@ -445,50 +512,156 @@ def render_visualization_panel():
             if df_year is not None and "residue_type" in df_year.columns:
                 residue_types_all = sorted(df_year["residue_type"].dropna().unique().tolist())
 
-        mid = st.columns([1, 2])
-        geo_scope = mid[0].radio(
-            "2. Geographic scope",
-            options=["Entire SNF region", "Single province", "Multiple provinces"],
-            index=0,
+            mid = st.columns([1, 2])
+            geo_scope = mid[0].radio(
+                "2. Geographic scope",
+                options=["Entire SNF region", "Single province", "Multiple provinces"],
+                index=0,
+            )
+
+            if geo_scope == "Entire SNF region":
+                selected_provinces = SNF_PROVINCES
+            elif geo_scope == "Single province":
+                selected_provinces = [mid[1].selectbox("Province", options=SNF_PROVINCES)]
+            else:
+                selected_provinces = mid[1].multiselect(
+                    "Provinces",
+                    options=SNF_PROVINCES,
+                    default=SNF_PROVINCES,
+                )
+
+            selected_crops = st.multiselect(
+                "3. Crops",
+                options=crops_all,
+                default=crops_all,
+            )
+
+            selected_residue_types = None
+            if not is_production_view and residue_types_all:
+                selected_residue_types = st.multiselect(
+                    "Residue type",
+                    options=residue_types_all,
+                    default=residue_types_all,
+                    help=help_text("Resid"),
+                )
+
+            utilization_rate = 1.0
+            if data_type_label in PRODUCT_TYPES:
+                utilization_percent = st.slider(
+                    "4. Residue utilization (%)",
+                    min_value=1,
+                    max_value=100,
+                    value=50,
+                    step=1,
+                    help=help_text("Residue utilization"),
+                )
+                utilization_rate = utilization_percent / 100.0
+
+    # GWP view: independent of geographic scope and other aggregated chart logic.
+    if is_gwp_view:
+        crop_row = crop_emi_df[crop_emi_df["crop"] == selected_crop].iloc[0]
+        production_emission = float(
+            crop_row["production_emission_kgco2eq_per_kg_crop"]
+        )
+        residue_kg_per_kg_crop = float(crop_row["residue_kg_per_kg_crop"])
+
+        result = compute_gwp_per_kg_crop(
+            crop=selected_crop,
+            production_emission_kgco2eq_per_kg_crop=production_emission,
+            residue_kg_per_kg_crop=residue_kg_per_kg_crop,
+            utilization_emission_kgco2eq_per_kg_residue=utilization_emission_map,
+            utilization_ratios_percent=utilization_ratios_percent,
         )
 
-        if geo_scope == "Entire SNF region":
-            selected_provinces = SNF_PROVINCES
-        elif geo_scope == "Single province":
-            selected_provinces = [mid[1].selectbox("Province", options=SNF_PROVINCES)]
-        else:
-            selected_provinces = mid[1].multiselect(
-                "Provinces",
-                options=SNF_PROVINCES,
-                default=SNF_PROVINCES,
-            )
+        # Build table (requested structure).
+        def _fmt(x: float) -> str:
+            s = f"{x:.6f}"
+            return s.replace('.', ',').rstrip('0').rstrip(',')
 
-        selected_crops = st.multiselect(
-            "3. Crops",
-            options=crops_all,
-            default=crops_all,
+        residue_component_order = [
+            "Animal feed",
+            "Biochar",
+            "Compost",
+            "Energy production",
+            "Left on field",
+        ]
+
+        row = {
+            "Crop": selected_crop,
+            "Production emission": _fmt(result["production_emission"]),
+            "Unit": "kgCO2eq",
+        }
+        for util in residue_component_order:
+            row[f"{util} emission"] = _fmt(result["residue_components"].get(util, 0.0))
+            # Unit column name requested: keep per-component unit columns implicit by repeating "Unit".
+            row["Unit"] = "kgCO2eq"
+
+        # Overall
+        row["Overall emission"] = _fmt(result["overall_emission"])
+        row["Overall unit"] = "kgCO2eq/kg crop production"
+
+        # To satisfy unit-per-component request, build a wide table explicitly.
+        table_df = pd.DataFrame(
+            [
+                {
+                    "Crop": selected_crop,
+                    "Production emission": _fmt(result["production_emission"]),
+                    "Production emission unit": "kgCO2eq/kg crop production",
+                    "Animal feed emission": _fmt(
+                        result["residue_components"].get("Animal feed", 0.0)
+                    ),
+                    "Animal feed emission unit": "kgCO2eq/kg crop production",
+                    "Biochar emission": _fmt(
+                        result["residue_components"].get("Biochar", 0.0)
+                    ),
+                    "Biochar emission unit": "kgCO2eq/kg crop production",
+                    "Compost emission": _fmt(
+                        result["residue_components"].get("Compost", 0.0)
+                    ),
+                    "Compost emission unit": "kgCO2eq/kg crop production",
+                    "Energy production emission": _fmt(
+                        result["residue_components"].get("Energy production", 0.0)
+                    ),
+                    "Energy production emission unit": "kgCO2eq/kg crop production",
+                    "Left on field emission": _fmt(
+                        result["residue_components"].get("Left on field", 0.0)
+                    ),
+                    "Left on field emission unit": "kgCO2eq/kg crop production",
+                    "Overall emission": _fmt(result["overall_emission"]),
+                    "Overall emission unit": "kgCO2eq/kg crop production",
+                }
+            ]
         )
 
-        selected_residue_types = None
-        if not is_production_view and residue_types_all:
-            selected_residue_types = st.multiselect(
-                "Residue type",
-                options=residue_types_all,
-                default=residue_types_all,
-                help=help_text("Resid"),
-            )
+        st.subheader("GWP results (per kg crop production)")
+        st.dataframe(table_df, use_container_width=True, hide_index=True)
 
-        utilization_rate = 1.0
-        if data_type_label in PRODUCT_TYPES:
-            utilization_percent = st.slider(
-                "4. Residue utilization (%)",
-                min_value=1,
-                max_value=100,
-                value=50,
-                step=1,
-                help=help_text("Residue utilization"),
-            )
-            utilization_rate = utilization_percent / 100.0
+        csv_bytes = table_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Download results (CSV)",
+            data=csv_bytes,
+            file_name="gwp_horticultural_production.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+        # Stacked bar chart
+        components_long = pd.DataFrame(
+            [
+                {"crop": selected_crop, "component": "Production emission", "value": result["production_emission"]},
+                *[
+                    {
+                        "crop": selected_crop,
+                        "component": f"{util}",
+                        "value": val,
+                    }
+                    for util, val in result["residue_components"].items()
+                ],
+            ]
+        )
+        fig = gwp_stacked_bar_by_components(components_long)
+        st.plotly_chart(fig, use_container_width=True)
+        return
 
     # Terminology hints for the active view
     if data_type_label == "Potential Biochar Production":

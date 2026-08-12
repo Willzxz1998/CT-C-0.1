@@ -183,3 +183,35 @@ def choropleth_snf(
             )
         )
     return apply_chart_theme(fig, height=560)
+
+
+def gwp_stacked_bar_by_components(
+    components_df: pd.DataFrame,
+    *,
+    title: str = "GWP breakdown per kg crop production",
+    unit: str = "kgCO2eq/kg crop production",
+) -> go.Figure:
+    """
+    components_df columns:
+      - crop
+      - component (e.g. Production emission, Animal feed, ...)
+      - value
+    Uses barmode='relative' so negative credits stack correctly.
+    """
+    if components_df.empty:
+        return apply_chart_theme(px.bar(title="No data to display"), height=360)
+
+    fig = px.bar(
+        components_df,
+        x="crop",
+        y="value",
+        color="component",
+        barmode="relative",
+        title=title,
+        labels={"value": unit, "crop": "Crop", "component": "Component"},
+    )
+    fig.update_traces(
+        hovertemplate="<b>%{x}</b><br>%{fullData.name}: %{y:.6f}<extra></extra>"
+    )
+    fig.update_layout(xaxis_tickangle=0)
+    return apply_chart_theme(fig, height=480)

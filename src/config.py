@@ -31,6 +31,7 @@ DATA_TYPES = {
     "Residue Inventory Overview": "residue_kt",
     "Potential Biochar Production": "biochar_potential_kt",
     "Potential Compost Production": "compost_potential_kt",
+    "GWP of horticultural production and residue utilization": "gwp_total_kgco2eq_per_kg_crop",
 }
 
 PRODUCT_TYPES = [
@@ -68,6 +69,8 @@ SHEETS = {
     "production": "Crop_production",
     "residue": "Residue_inventory",
     "conversion": "Conversion_parameters",
+    "crop_emi": "Crop_pro_emi",
+    "resi_uti_emi": "Resi_uti_emission",
 }
 
 COLS = {

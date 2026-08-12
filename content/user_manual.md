@@ -5,6 +5,7 @@ The Sustainability Tool is an informational and decision-support portal for expl
 
 ### Main functions
 - Visualise **horticultural production**, **residue inventory**, and **potential biochar and compost production**.
+- Calculate **GWP (kg CO2eq per kg crop production)** for horticultural crops under user-defined residue utilization scenarios.
 - Filter by province, crop, and residue type.
 - Explore rankings, provincial contributions, stacked overviews, and an interactive regional map.
 - Contribute missing or updated data via **Data Contribution**.
@@ -15,7 +16,7 @@ Researchers, policymakers, growers, bioeconomy stakeholders, and students intere
 ### Workflow overview
 1. Open **Homepage** for context and valorisation products.
 2. Go to **Circular horticultural cultivation value chain** and set filters.
-3. Choose a data view (production, residue, biochar, or compost).
+3. Choose a data view (production, residue, biochar, compost, or GWP).
 4. Explore charts and the map.
 5. Use **Data Contribution** to submit new or improved datasets.
 6. Consult **References** and this manual for methods and terminology.
@@ -40,6 +41,7 @@ Researchers, policymakers, growers, bioeconomy stakeholders, and students intere
 | **Horticultural residues** | Residues from open-field and protected horticulture in the study region. |
 | **Residue inventory** | Quantified residues by crop, province, and type. |
 | **Residue utilization** | Assumed share of residue entering a valorisation pathway. |
+| **GWP** | Global Warming Potential (expressed here as greenhouse gas emissions, in kg CO2-equivalent). |
 | **Coumaric acid** | Phenolic compound recoverable via biorefinery; a project valorisation product. |
 | **SNF region** | Southern Netherlands and Flanders (eight NUTS2 provinces). |
 
@@ -52,6 +54,18 @@ Researchers, policymakers, growers, bioeconomy stakeholders, and students intere
 | **Residue inventory** | **Wet mass** (kt) |
 | **Compost production (potential)** | **Wet mass** (kt) |
 | **Biochar production (potential)** | **Dry mass** (kt) |
+| **GWP of horticultural production and residue utilization** | **kg CO2eq per kg crop production** |
+
+For the **GWP** view, the tool combines:
+- production emission per kg crop production,
+- residue mass per kg crop production,
+- and user-defined residue utilization shares.
+
+Overall GWP per kg crop production is:
+
+> production emission + residue_mass × Σ (residue_share × utilization_emission)
+
+Any residue share not allocated to the selected utilization routes is assigned to **Left on field** by default.
 
 **Biochar yield** is defined as:
 
