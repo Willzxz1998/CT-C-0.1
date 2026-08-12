@@ -67,6 +67,8 @@ Overall GWP per kg crop production is:
 
 Any residue share not allocated to the selected utilization routes is assigned to **Left on field** by default.
 
+In the interface, **Left on field** is computed automatically as the remaining share after the four selectable utilization routes (Animal feed, Biochar, Compost, Energy production).
+
 **Biochar yield** is defined as:
 
 > **Biochar yield = Mass of biochar produced / Mass of dried feedstock**

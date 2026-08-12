@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 import zipfile
 import xml.etree.ElementTree as ET
+import io
 
 import pandas as pd
 import streamlit as st
@@ -451,51 +452,54 @@ def render_visualization_panel():
                 index=0,
             )
 
-            residue_util_categories = [
-                "Animal feed",
-                "Biochar",
-                "Compost",
-                "Energy production",
-            ]
+            st.markdown("### Residue utilization shares")
 
-            selected_residue_utils = st.multiselect(
-                "3. Residue utilization types",
-                options=residue_util_categories,
-                default=[],
+            animal_feed_pct = float(
+                st.slider("Animal feed utilization (%)", min_value=0, max_value=100, value=0, step=1)
             )
+            biochar_pct = float(
+                st.slider("Biochar utilization (%)", min_value=0, max_value=100, value=0, step=1)
+            )
+            compost_pct = float(
+                st.slider("Compost utilization (%)", min_value=0, max_value=100, value=0, step=1)
+            )
+            energy_pct = float(
+                st.slider("Energy production utilization (%)", min_value=0, max_value=100, value=0, step=1)
+            )
+
+            sum_four = animal_feed_pct + biochar_pct + compost_pct + energy_pct
+            if sum_four > 100.0 + 1e-9:
+                st.error("The sum of the four selected utilization shares cannot exceed 100%.")
+                left_on_field_percent = 0.0
+            else:
+                left_on_field_percent = float(100.0 - sum_four)
+
+            st.metric("Left on field (auto)", f"{left_on_field_percent:.0f}%")
 
             utilization_ratios_percent: dict[str, float] = {
-                util: 0.0 for util in residue_util_categories
+                "Animal feed": animal_feed_pct,
+                "Biochar": biochar_pct,
+                "Compost": compost_pct,
+                "Energy production": energy_pct,
+                "Left on field": left_on_field_percent,
             }
-            for util in selected_residue_utils:
-                utilization_ratios_percent[util] = float(
-                    st.number_input(
-                        f"{util} ratio (%)",
-                        min_value=0.0,
-                        max_value=100.0,
-                        value=0.0,
-                        step=1.0,
-                    )
-                )
-
-            sum_selected = sum(utilization_ratios_percent.values())
-            if sum_selected > 100.0 + 1e-9:
-                st.error("Selected residue utilization ratios cannot exceed 100%.")
-            left_on_field_percent = max(0.0, 100.0 - sum_selected)
-            st.caption(
-                f"Left on field (default): {left_on_field_percent:.0f}%"
-            )
-
-            utilization_ratios_percent["Left on field"] = left_on_field_percent
 
             utilization_emission_map: dict[str, float] = {}
             for _, row in resi_uti_df.iterrows():
                 util = str(row.get("utilization", "")).strip()
-                emis = row.get("utilization_emission_kgco2eq_per_kg_residue", 0.0)
+                emis = row.get(
+                    "utilization_emission_kgco2eq_per_kg_residue", 0.0
+                )
                 utilization_emission_map[util] = float(emis)
 
             # Ensure all required utilization keys exist.
-            for needed in residue_util_categories + ["Left on field"]:
+            for needed in [
+                "Animal feed",
+                "Biochar",
+                "Compost",
+                "Energy production",
+                "Left on field",
+            ]:
                 utilization_emission_map.setdefault(needed, 0.0)
 
         elif is_production_view:
@@ -504,6 +508,33 @@ def render_visualization_panel():
             )
             residue_types_all: list[str] = []
             df_year = None
+
+            mid = st.columns([1, 2])
+            geo_scope = mid[0].radio(
+                "2. Geographic scope",
+                options=["Entire SNF region", "Single province", "Multiple provinces"],
+                index=0,
+            )
+
+            if geo_scope == "Entire SNF region":
+                selected_provinces = SNF_PROVINCES
+            elif geo_scope == "Single province":
+                selected_provinces = [mid[1].selectbox("Province", options=SNF_PROVINCES)]
+            else:
+                selected_provinces = mid[1].multiselect(
+                    "Provinces",
+                    options=SNF_PROVINCES,
+                    default=SNF_PROVINCES,
+                )
+
+            selected_crops = st.multiselect(
+                "3. Crops",
+                options=crops_all,
+                default=crops_all,
+            )
+
+            selected_residue_types = None
+            utilization_rate = 1.0
         else:
             df_year, provinces_all, crops_all = load_residue_data_for_year(
                 year, data_mtime=get_ctcdata_mtime()
@@ -575,73 +606,76 @@ def render_visualization_panel():
 
         # Build table (requested structure).
         def _fmt(x: float) -> str:
-            s = f"{x:.6f}"
-            return s.replace('.', ',').rstrip('0').rstrip(',')
+            if x is None:
+                x = 0.0
+            s = f"{float(x):.6f}"
+            s = s.replace(".", ",").rstrip("0").rstrip(",")
+            return s
 
-        residue_component_order = [
-            "Animal feed",
-            "Biochar",
-            "Compost",
-            "Energy production",
-            "Left on field",
+        prod_val = _fmt(result["production_emission"])
+        animal_val = _fmt(result["residue_components"].get("Animal feed", 0.0))
+        biochar_val = _fmt(result["residue_components"].get("Biochar", 0.0))
+        compost_val = _fmt(result["residue_components"].get("Compost", 0.0))
+        energy_val = _fmt(result["residue_components"].get("Energy production", 0.0))
+        left_val = _fmt(result["residue_components"].get("Left on field", 0.0))
+        overall_val = _fmt(result["overall_emission"])
+
+        # Units (match your requested label strings).
+        unit_prod = "kgCO2eq"
+        unit_animal = "kg CO2eq/share utilization"
+        unit_other_res = "kgCO2eq/kg share utilization"
+        unit_overall = "kgCO2eq"
+
+        table_columns = [
+            "Crop",
+            "production",
+            "unit",
+            "animal feed",
+            "unit",
+            "biochar",
+            "unit",
+            "compost",
+            "unit",
+            "energy production",
+            "unit",
+            "left on field",
+            "unit",
+            "Overall emission",
+            "Unit",
         ]
+        table_row = [
+            selected_crop,
+            prod_val,
+            unit_prod,
+            animal_val,
+            unit_animal,
+            biochar_val,
+            unit_other_res,
+            compost_val,
+            unit_other_res,
+            energy_val,
+            unit_other_res,
+            left_val,
+            unit_other_res,
+            overall_val,
+            unit_overall,
+        ]
+        table_df = pd.DataFrame([table_row], columns=table_columns)
 
-        row = {
-            "Crop": selected_crop,
-            "Production emission": _fmt(result["production_emission"]),
-            "Unit": "kgCO2eq",
-        }
-        for util in residue_component_order:
-            row[f"{util} emission"] = _fmt(result["residue_components"].get(util, 0.0))
-            # Unit column name requested: keep per-component unit columns implicit by repeating "Unit".
-            row["Unit"] = "kgCO2eq"
-
-        # Overall
-        row["Overall emission"] = _fmt(result["overall_emission"])
-        row["Overall unit"] = "kgCO2eq/kg crop production"
-
-        # To satisfy unit-per-component request, build a wide table explicitly.
-        table_df = pd.DataFrame(
-            [
-                {
-                    "Crop": selected_crop,
-                    "Production emission": _fmt(result["production_emission"]),
-                    "Production emission unit": "kgCO2eq/kg crop production",
-                    "Animal feed emission": _fmt(
-                        result["residue_components"].get("Animal feed", 0.0)
-                    ),
-                    "Animal feed emission unit": "kgCO2eq/kg crop production",
-                    "Biochar emission": _fmt(
-                        result["residue_components"].get("Biochar", 0.0)
-                    ),
-                    "Biochar emission unit": "kgCO2eq/kg crop production",
-                    "Compost emission": _fmt(
-                        result["residue_components"].get("Compost", 0.0)
-                    ),
-                    "Compost emission unit": "kgCO2eq/kg crop production",
-                    "Energy production emission": _fmt(
-                        result["residue_components"].get("Energy production", 0.0)
-                    ),
-                    "Energy production emission unit": "kgCO2eq/kg crop production",
-                    "Left on field emission": _fmt(
-                        result["residue_components"].get("Left on field", 0.0)
-                    ),
-                    "Left on field emission unit": "kgCO2eq/kg crop production",
-                    "Overall emission": _fmt(result["overall_emission"]),
-                    "Overall emission unit": "kgCO2eq/kg crop production",
-                }
-            ]
-        )
-
-        st.subheader("GWP results (per kg crop production)")
+        st.subheader("GWP results")
         st.dataframe(table_df, use_container_width=True, hide_index=True)
 
-        csv_bytes = table_df.to_csv(index=False).encode("utf-8")
+        # Download as XLSX (Excel-friendly).
+        xlsx_buffer = io.BytesIO()
+        with pd.ExcelWriter(xlsx_buffer, engine="openpyxl") as writer:
+            table_df.to_excel(writer, index=False, sheet_name="GWP results")
+        xlsx_bytes = xlsx_buffer.getvalue()
+
         st.download_button(
-            "Download results (CSV)",
-            data=csv_bytes,
-            file_name="gwp_horticultural_production.csv",
-            mime="text/csv",
+            "Download results (XLSX)",
+            data=xlsx_bytes,
+            file_name="gwp_horticultural_production.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
 
@@ -659,7 +693,9 @@ def render_visualization_panel():
                 ],
             ]
         )
-        fig = gwp_stacked_bar_by_components(components_long)
+        fig = gwp_stacked_bar_by_components(
+            components_long, unit="kg CO2eq"
+        )
         st.plotly_chart(fig, use_container_width=True)
         return
 

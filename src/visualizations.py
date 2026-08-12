@@ -189,7 +189,7 @@ def gwp_stacked_bar_by_components(
     components_df: pd.DataFrame,
     *,
     title: str = "GWP breakdown per kg crop production",
-    unit: str = "kgCO2eq/kg crop production",
+    unit: str = "kg CO2eq",
 ) -> go.Figure:
     """
     components_df columns:
