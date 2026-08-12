@@ -626,7 +626,47 @@ def render_visualization_panel():
         unit_other_res = "kgCO2eq/kg share utilization"
         unit_overall = "kgCO2eq"
 
-        table_columns = [
+        # Unique column names for st.dataframe (pyarrow rejects duplicate headers).
+        table_df = pd.DataFrame(
+            [
+                {
+                    "Crop": selected_crop,
+                    "production": prod_val,
+                    "production_unit": unit_prod,
+                    "animal feed": animal_val,
+                    "animal_feed_unit": unit_animal,
+                    "biochar": biochar_val,
+                    "biochar_unit": unit_other_res,
+                    "compost": compost_val,
+                    "compost_unit": unit_other_res,
+                    "energy production": energy_val,
+                    "energy_production_unit": unit_other_res,
+                    "left on field": left_val,
+                    "left_on_field_unit": unit_other_res,
+                    "Overall emission": overall_val,
+                    "overall_unit": unit_overall,
+                }
+            ]
+        )
+
+        st.subheader("GWP results")
+        st.dataframe(
+            table_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "production_unit": st.column_config.TextColumn("unit"),
+                "animal_feed_unit": st.column_config.TextColumn("unit"),
+                "biochar_unit": st.column_config.TextColumn("unit"),
+                "compost_unit": st.column_config.TextColumn("unit"),
+                "energy_production_unit": st.column_config.TextColumn("unit"),
+                "left_on_field_unit": st.column_config.TextColumn("unit"),
+                "overall_unit": st.column_config.TextColumn("Unit"),
+            },
+        )
+
+        # XLSX export uses the requested repeated "unit" column headers.
+        export_columns = [
             "Crop",
             "production",
             "unit",
@@ -643,7 +683,7 @@ def render_visualization_panel():
             "Overall emission",
             "Unit",
         ]
-        table_row = [
+        export_row = [
             selected_crop,
             prod_val,
             unit_prod,
@@ -660,15 +700,12 @@ def render_visualization_panel():
             overall_val,
             unit_overall,
         ]
-        table_df = pd.DataFrame([table_row], columns=table_columns)
-
-        st.subheader("GWP results")
-        st.dataframe(table_df, use_container_width=True, hide_index=True)
+        export_df = pd.DataFrame([export_row], columns=export_columns)
 
         # Download as XLSX (Excel-friendly).
         xlsx_buffer = io.BytesIO()
         with pd.ExcelWriter(xlsx_buffer, engine="openpyxl") as writer:
-            table_df.to_excel(writer, index=False, sheet_name="GWP results")
+            export_df.to_excel(writer, index=False, sheet_name="GWP results")
         xlsx_bytes = xlsx_buffer.getvalue()
 
         st.download_button(
